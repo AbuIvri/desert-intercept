@@ -1,0 +1,2477 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>סימולטור טיסה: יירוט רחפנים</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Courier New', Courier, monospace;
+            user-select: none;
+        }
+        #game-canvas {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+            transition: filter 0.3s;
+        }
+        
+        /* שכבת תא הטייס (HUD) */
+        #hud {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .hud-glass {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            box-shadow: inset 0 0 100px rgba(0,255,0,0.1);
+            border: 20px solid #1a1a1a;
+            border-bottom: 50px solid #111;
+            border-radius: 20px;
+            box-sizing: border-box;
+        }
+
+        /* כוונת */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            border: 2px solid rgba(0, 255, 0, 0.7);
+            border-radius: 50%;
+            transition: all 0.1s;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            transition: all 0.1s;
+        }
+        /* יצירת מרווח שקוף במרכז הצלב לראייה חלקה של המטרה */
+        #crosshair::before { 
+            top: 19px; left: -10px; width: 60px; height: 2px; 
+            background: linear-gradient(to right, rgba(0, 255, 0, 0.7) 0%, rgba(0, 255, 0, 0.7) 42%, transparent 42%, transparent 58%, rgba(0, 255, 0, 0.7) 58%, rgba(0, 255, 0, 0.7) 100%);
+        }
+        #crosshair::after { 
+            top: -10px; left: 19px; width: 2px; height: 60px; 
+            background: linear-gradient(to bottom, rgba(0, 255, 0, 0.7) 0%, rgba(0, 255, 0, 0.7) 42%, transparent 42%, transparent 58%, rgba(0, 255, 0, 0.7) 58%, rgba(0, 255, 0, 0.7) 100%);
+        }
+
+        /* חיווי כתום כאשר המטרה בתוך כוונת הוולקן */
+        #crosshair.in-sights {
+            border-color: #ffaa00;
+            box-shadow: 0 0 8px #ffaa00;
+        }
+        #crosshair.in-sights::before {
+            background: linear-gradient(to right, #ffaa00 0%, #ffaa00 42%, transparent 42%, transparent 58%, #ffaa00 58%, #ffaa00 100%);
+        }
+        #crosshair.in-sights::after {
+            background: linear-gradient(to bottom, #ffaa00 0%, #ffaa00 42%, transparent 42%, transparent 58%, #ffaa00 58%, #ffaa00 100%);
+        }
+
+        /* מצב נעילה על מטרה (טילים) */
+        #crosshair.locked {
+            border-color: #ff0000 !important;
+            transform: translate(-50%, -50%) scale(1.3);
+            box-shadow: 0 0 15px #ff0000;
+        }
+        #crosshair.locked::before {
+            background: linear-gradient(to right, #ff0000 0%, #ff0000 42%, transparent 42%, transparent 58%, #ff0000 58%, #ff0000 100%) !important;
+            box-shadow: 0 0 10px #ff0000;
+        }
+        #crosshair.locked::after {
+            background: linear-gradient(to bottom, #ff0000 0%, #ff0000 42%, transparent 42%, transparent 58%, #ff0000 58%, #ff0000 100%) !important;
+            box-shadow: 0 0 10px #ff0000;
+        }
+
+        /* הוספת תיבת נעילה על המטרה */
+        #target-box {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border: 2px solid transparent;
+            transform: translate(-50%, -50%);
+            display: none;
+            pointer-events: none;
+            z-index: 12;
+        }
+        #target-box.acquiring {
+            border-color: #00ff00;
+            box-shadow: 0 0 10px #00ff00, inset 0 0 10px #00ff00;
+        }
+        #target-box.acquiring::after {
+            content: 'ACQ';
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #00ff00;
+            font-size: 14px;
+            font-weight: bold;
+            text-shadow: 0 0 5px #00ff00;
+            letter-spacing: 2px;
+        }
+        #target-box.locked {
+            border-color: #ff0000;
+            box-shadow: 0 0 10px #ff0000, inset 0 0 10px #ff0000;
+        }
+        #target-box.locked::after {
+            content: 'LOCK';
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ff0000;
+            font-size: 14px;
+            font-weight: bold;
+            text-shadow: 0 0 5px #ff0000;
+            letter-spacing: 2px;
+        }
+
+        /* מצב נעילה אקטיבית (לקראת שיגור) */
+        #target-box.locking-active {
+            border-color: #ff0000;
+            box-shadow: 0 0 20px #ff0000, inset 0 0 20px #ff0000;
+            animation: fast-blink 0.15s infinite alternate;
+        }
+        #target-box.locking-active::after {
+            content: 'FIRING';
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ff0000;
+            font-size: 16px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #ff0000;
+            letter-spacing: 2px;
+        }
+
+        @keyframes fast-blink {
+            from { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+            to { opacity: 0.3; transform: translate(-50%, -50%) scale(0.9); }
+        }
+
+        /* חץ הכוונה למטרה הקרובה */
+        #direction-wrapper {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 400px;
+            height: 400px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 11;
+            display: none; 
+        }
+        .direction-arrow {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0; height: 0;
+            border-left: 12px solid transparent;
+            border-right: 12px solid transparent;
+            border-bottom: 25px solid rgba(255, 170, 0, 0.9);
+            filter: drop-shadow(0 0 8px rgba(255, 170, 0, 1));
+            animation: pulse-arrow 0.5s infinite alternate;
+        }
+        @keyframes pulse-arrow {
+            from { opacity: 0.4; }
+            to { opacity: 1; }
+        }
+
+        /* אנימציית הבהוב להתראת קמיקזה */
+        @keyframes text-blink {
+            0% { opacity: 1; text-shadow: 0 0 10px #f00; }
+            50% { opacity: 0.3; text-shadow: none; }
+            100% { opacity: 1; text-shadow: 0 0 10px #f00; }
+        }
+
+        /* --- עיצוב HUD מורכב --- */
+        .hud-top-panel { position: absolute; top: 20px; left: 20px; color: #0f0; text-shadow: 0 0 5px #0f0; font-size: 1.2rem; font-weight: bold; }
+        
+        .heading-container { position: absolute; top: 8%; left: 50%; transform: translateX(-50%); width: 400px; height: 30px; overflow: hidden; border-bottom: 2px solid rgba(0,255,0,0.5); text-align: center; font-size: 1.2rem; color: #0f0; text-shadow: 0 0 5px #0f0; }
+        #heading-tape { display: flex; gap: 30px; position: absolute; left: 50%; transform: translateX(-50%); transition: transform 0.1s; white-space: nowrap; }
+        .heading-caret { position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%); color: #0f0; font-size: 1.5rem; text-shadow: 0 0 5px #0f0; }
+        
+        .pitch-container { position: absolute; top: 15%; left: 30%; width: 40%; height: 70%; overflow: hidden; }
+        .pitch-ladder { position: absolute; top: 50%; display: flex; flex-direction: column; gap: 60px; color: rgba(0,255,0,0.7); font-size: 1.1rem; transition: transform 0.1s; white-space: nowrap; }
+        #pitch-ladder-left { left: 0; border-right: 2px solid rgba(0,255,0,0.5); padding-right: 15px; }
+        #pitch-ladder-right { right: 0; border-left: 2px solid rgba(0,255,0,0.5); padding-left: 15px; text-align: left; }
+
+        .hud-left-panel { position: absolute; top: 40%; left: 15%; display: flex; flex-direction: column; gap: 8px; font-size: 1.2rem; color: #0f0; text-shadow: 0 0 5px #0f0; font-weight: bold; }
+        .hud-right-panel { position: absolute; top: 40%; right: 15%; display: flex; flex-direction: column; gap: 8px; font-size: 1.2rem; color: #0f0; text-shadow: 0 0 5px #0f0; font-weight: bold; text-align: right; }
+        .hud-box { border: 2px solid #0f0; padding: 8px 20px; background: rgba(0,255,0,0.15); font-size: 1.8rem; letter-spacing: 2px; box-shadow: 0 0 10px rgba(0,255,0,0.3) inset; }
+
+        .bottom-panel { position: absolute; bottom: 20px; left: 20px; right: 20px; display: flex; justify-content: space-between; align-items: flex-end; color: #0f0; text-shadow: 0 0 5px #0f0; font-size: 1.2rem; font-weight: bold; }
+        .weapon-status { text-align: left; font-family: monospace; line-height: 1.8; }
+        .sys-data { text-align: right; line-height: 1.8; }
+
+        #radar-container {
+            width: 140px;
+            height: 140px;
+            border: 2px solid rgba(0, 255, 0, 0.6);
+            border-radius: 50%;
+            background: rgba(0, 20, 0, 0.8);
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.2) inset;
+            position: relative;
+            overflow: hidden;
+        }
+        #radar-canvas {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+        }
+
+        .night-vision {
+            filter: grayscale(100%) sepia(100%) hue-rotate(60deg) saturate(800%) brightness(1.2) contrast(1.5) !important;
+        }
+
+        #nvg-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 5;
+            display: none;
+            background: 
+                radial-gradient(circle, rgba(0,255,0,0) 40%, rgba(0,20,0,0.8) 100%),
+                repeating-linear-gradient(0deg, rgba(0,0,0,0.15), rgba(0,0,0,0.15) 2px, transparent 2px, transparent 4px);
+        }
+
+        /* --- מסכי פתיחה והוראות חדשים --- */
+        #start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #050505;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            z-index: 100;
+            cursor: pointer; 
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            padding-bottom: 50px;
+            box-sizing: border-box;
+        }
+
+        @keyframes pulse-text {
+            from { opacity: 0.5; }
+            to { opacity: 1; }
+        }
+
+        /* שכבת ההוראות המעודכנת */
+        #instructions-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #050505; 
+            background-size: cover; 
+            background-position: center;
+            background-repeat: no-repeat;
+            display: none; 
+            flex-direction: column;
+            justify-content: center; /* מרכוז כל התוכן בצורה אנכית */
+            align-items: center;
+            z-index: 105;
+            color: #0f0;
+            text-align: center;
+            padding-top: 15vh; /* דוחף את התוכן למטה רק כדי לפנות מקום לכותרת שבתמונה */
+            padding-bottom: 2vh;
+            box-sizing: border-box; /* מונע מהמסך לחרוג מעבר לגבולות התצוגה */
+        }
+
+        #game-over-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #050505;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 110;
+            text-align: center;
+        }
+        
+        .instructions-container {
+            display: flex;
+            gap: 15px; 
+            max-width: 900px;
+            margin: 5px; 
+            transform: scale(0.9); 
+        }
+
+        .instructions, .settings-panel { 
+            font-size: 1rem; 
+            text-align: right; 
+            line-height: 1.4; 
+            background: rgba(0, 15, 0, 0.85); 
+            padding: 15px; 
+            border: 1px solid #0f0; 
+            border-radius: 10px; 
+            box-shadow: 0 0 15px rgba(0,255,0,0.2) inset;
+        }
+
+        .settings-panel {
+            min-width: 220px; 
+            display: flex;
+            flex-direction: column;
+            gap: 10px; 
+        }
+
+        .settings-panel h3 {
+            margin: 0 0 5px 0; 
+            color: #ffaa00;
+            text-decoration: underline;
+            font-size: 1.1rem; 
+            text-align: center;
+        }
+
+        .setting-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .setting-group label {
+            color: #0f0;
+            font-weight: bold;
+        }
+
+        .setting-group input[type="range"] {
+            width: 100%;
+            accent-color: #0f0;
+        }
+
+        .setting-group select {
+            background: rgba(0, 30, 0, 0.8);
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 5px;
+            font-family: inherit;
+            border-radius: 5px;
+        }
+
+        /* עיצוב שדה שם משתמש (עודכן והותאם לתוך פאנל ההגדרות) */
+        .name-input-container {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            text-align: right;
+            margin: 0 0 5px 0; 
+        }
+        .name-input-container label {
+            color: #0f0;
+            font-weight: bold;
+        }
+        .name-input {
+            background: rgba(0, 30, 0, 0.8);
+            border: 1px solid #0f0;
+            color: #0f0;
+            padding: 8px 10px; 
+            font-size: 1rem; 
+            font-family: inherit;
+            border-radius: 5px;
+            width: 100%; 
+            box-sizing: border-box;
+            text-align: right;
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.2) inset;
+        }
+        .name-input:focus {
+            outline: none;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.6) inset, 0 0 10px #0f0;
+            background: rgba(0, 50, 0, 0.9);
+        }
+        .name-input::placeholder {
+            color: rgba(0, 255, 0, 0.5);
+        }
+
+        #leaderboard {
+            margin-top: 10px;
+            background: rgba(0, 50, 0, 0.85);
+            border: 1px solid #0f0;
+            padding: 15px 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0,255,0,0.3);
+            display: none;
+            min-width: 300px;
+        }
+        #leaderboard h3 { margin: 0 0 10px 0; color: #ffaa00; font-size: 1.5rem; text-decoration: underline; }
+        #leaderboard ol { margin: 0; padding-right: 25px; text-align: right; color: #0f0; font-size: 1.2rem; }
+        #leaderboard li { margin-bottom: 5px; }
+
+        .mission-btn {
+            background: #003300;
+            color: #0f0;
+            border: 2px solid #0f0;
+            padding: 10px 30px; 
+            font-size: 1.3rem; 
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.3s;
+            margin-top: 25px; /* מרווח גדול יותר בין הטקסטים לכפתור */
+            margin-bottom: 20px; /* מרווח מתחת לכפתור כדי שלא יידבק לגבול התחתון */
+            border-radius: 5px;
+        }
+        .mission-btn:hover { background: #0f0; color: #000; box-shadow: 0 0 20px #0f0; }
+        
+        #damage-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 0, 0, 0.5);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 20;
+            transition: opacity 0.1s;
+        }
+
+        #muzzle-flash {
+            position: absolute;
+            bottom: 30%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 250px;
+            height: 250px;
+            background: radial-gradient(circle, rgba(255,255,150,0.8) 0%, rgba(255,100,0,0.4) 30%, rgba(0,0,0,0) 60%);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 15;
+            transition: opacity 0.05s;
+        }
+
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <!-- מסך פתיחה הראשי (עם התמונה) - ללא כפתור -->
+    <div id="start-screen">
+    </div>
+
+    <!-- שכבת הוראות (מופיעה אחרי לחיצה על התחל, כשקופה למחצה על גבי התמונה) -->
+    <div id="instructions-overlay">
+        
+        <div class="instructions-container">
+            <div class="instructions">
+                <h3 style="margin-top: 0; color: #ffaa00; text-align: center; text-decoration: underline;">פקודות טיסה ונשק</h3>
+                • <b>חצי מקלדת (↑↓←→)</b> - ניווט וכוונת המטוס<br>
+                • <b>W / S</b> - הגברה/הורדה של עוצמת המנוע (מצערת)<br>
+                • <b>מקש רווח או קליק שמאלי</b> - ירי במכונת ירייה (יש לכוון בדיוק לאמצע הכוונת!)<br>
+                • <b>מקש M או קליק ימני</b> - שיגור טיל (דורש שמירה על נעילה ל-1.5 שניות!)<br>
+                • <b>מקש F</b> - שחרור נור הטעיה נגד קמיקזה<br>
+                <br>
+                <h3 style="margin-top: 0; color: #ffaa00; text-align: center; text-decoration: underline;">חוקי קרב</h3>
+                • 3 פגיעות קמיקזה במטוס - <b>התרסקות.</b><br>
+                • 5 רחפנים מצליחים לחמוק - <b>כישלון משימה.</b><br>
+            </div>
+            
+            <div class="settings-panel">
+                <h3>הגדרות מערכת</h3>
+                
+                <div class="name-input-container">
+                    <label for="player-name-input">שם טייס/ת למערכת:</label>
+                    <input type="text" id="player-name-input" class="name-input" placeholder="הזן שם..." maxlength="15" autocomplete="off">
+                </div>
+
+                <div class="setting-group">
+                    <label for="hud-mode">תצוגת HUD:</label>
+                    <select id="hud-mode">
+                        <option value="full">מלא (כל הנתונים)</option>
+                        <option value="partial">חלקי (כוונת, רדאר ונשק בלבד)</option>
+                        <option value="minimal">נקי (כוונת בלבד)</option>
+                    </select>
+                </div>
+                <div class="setting-group">
+                    <label for="music-volume">עוצמת מוזיקה: <span id="music-vol-display">33%</span></label>
+                    <input type="range" id="music-volume" min="0" max="100" value="33">
+                </div>
+                <div class="setting-group">
+                    <label for="sfx-volume">עוצמת אפקטים: <span id="sfx-vol-display">64%</span></label>
+                    <input type="range" id="sfx-volume" min="0" max="100" value="64">
+                </div>
+            </div>
+        </div>
+
+        <div id="leaderboard">
+            <h3>שיאי הפלות (Top 5)</h3>
+            <ol id="high-scores-list"></ol>
+        </div>
+
+        <button id="start-btn" class="mission-btn">התחל משימה</button>
+    </div>
+
+    <!-- מסך פסילה / סיום משימה -->
+    <div id="game-over-screen"></div>
+
+    <!-- אפקט פגיעה -->
+    <div id="damage-overlay"></div>
+    
+    <!-- אפקט הבזק ירי -->
+    <div id="muzzle-flash"></div>
+
+    <!-- שכבת אפקט ראיית לילה -->
+    <div id="nvg-overlay"></div>
+
+    <!-- HUD וקנבס המשחק -->
+    <canvas id="game-canvas"></canvas>
+    
+    <div id="hud" style="display: none;">
+        <div class="hud-glass" id="hud-glass-layer"></div>
+        <div id="crosshair"></div>
+        
+        <!-- חץ הכוונה לרחפן הבא -->
+        <div id="direction-wrapper">
+            <div class="direction-arrow"></div>
+        </div>
+
+        <div id="target-box"></div> 
+        
+        <div class="hud-top-panel" id="hud-top-layer">
+            <div>מערכת: <span id="vision-text">רגיל</span></div>
+            <div>מטרות שהושמדו: <span id="score">0</span></div>
+            <div style="color: #ffaa00;">שלב: <span id="level">1</span></div>
+            <div style="color: #ff5555; margin-top: 5px;">רחפנים שחמקו: <span id="escaped-count">0</span>/5</div>
+        </div>
+
+        <div class="heading-container" id="hud-heading-layer">
+            <div id="heading-tape">
+                <span>NW</span><span>320</span><span>330</span><span>340</span><span>350</span><span>N</span><span>010</span><span>020</span><span>030</span><span>040</span><span>NE</span>
+            </div>
+            <div class="heading-caret">^</div>
+        </div>
+
+        <div class="pitch-container" id="hud-pitch-layer">
+            <div id="pitch-ladder-left" class="pitch-ladder">
+                <span>+40 ___</span><span>+30 ___</span><span>+20 ___</span><span>+10 ___</span><span>  0 ___</span><span>-10 _ _</span><span>-20 _ _</span><span>-30 _ _</span><span>-40 _ _</span>
+            </div>
+            <div id="pitch-ladder-right" class="pitch-ladder">
+                <span>___ +40</span><span>___ +30</span><span>___ +20</span><span>___ +10</span><span>___   0</span><span>_ _ -10</span><span>_ _ -20</span><span>_ _ -30</span><span>_ _ -40</span>
+            </div>
+        </div>
+
+        <div class="hud-left-panel" style="direction: ltr;" id="hud-left-layer">
+            <div class="hud-box" id="speed-box">450</div>
+            <div>M <span id="mach-text">0.65</span></div>
+            <div>G <span id="g-force">1.0</span></div>
+        </div>
+
+        <div class="hud-right-panel" style="direction: ltr;" id="hud-right-layer">
+            <div class="hud-box" id="alt-box">2000</div>
+            <div>VS <span id="vs-text">+0</span></div>
+        </div>
+
+        <div class="bottom-panel" id="hud-bottom-layer">
+            <div style="display: flex; align-items: flex-end; gap: 30px;">
+                <div id="radar-container">
+                    <canvas id="radar-canvas" width="140" height="140"></canvas>
+                </div>
+                <div class="weapon-status" style="direction: ltr;">
+                    <div>WPN: <span id="missile-count">4</span>x MSL <span id="missile-status" style="color: #0f0">RDY</span></div>
+                    <div>GUN: <span id="gun-status" style="color: #0f0">RDY</span></div>
+                    <div>FLR: <span id="flare-count">3</span>x CM <span id="flare-status" style="color: #0f0">RDY</span></div>
+                    <div id="gun-heat-display" style="font-size: 1rem; color: #ffaa00;">TEMP: [----------] 0&deg;C</div>
+                </div>
+            </div>
+            <div class="sys-data" id="hud-sys-layer">
+                <div>זמן משימה: <span id="mission-time" style="direction: ltr; display: inline-block;">T+ 00:00</span></div>
+                <div>שלמות מבנה: <span id="health">100</span>%</div>
+                <div>רדאר: <span id="radar-warning" style="color: #aaa">נקי</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // =====================================================================
+        // הגדרת תמונות הרקע
+        // =====================================================================
+        const START_SCREEN_BG_URL = "https://res.cloudinary.com/dcogfmkj2/image/upload/v1772638551/Generated_Image_March_04_2026_-_5_12PM_lcvquu.png"; 
+        const INSTRUCTIONS_BG_URL = "https://res.cloudinary.com/dcogfmkj2/image/upload/v1772638556/Generated_Image_March_04_2026_-_3_22PM_v3jtg4.png";
+        const GAME_OVER_BG_URL = "https://res.cloudinary.com/dcogfmkj2/image/upload/v1772638557/Generated_Image_March_04_2026_-_5_33PM_ekuvh4.png";
+        
+        if (START_SCREEN_BG_URL && START_SCREEN_BG_URL !== "https://example.com/your-image.jpg") {
+            document.getElementById('start-screen').style.backgroundImage = `url('${START_SCREEN_BG_URL}')`;
+        }
+        if (INSTRUCTIONS_BG_URL) {
+            document.getElementById('instructions-overlay').style.backgroundImage = `url('${INSTRUCTIONS_BG_URL}')`;
+        }
+
+        // --- הגדרות קבצי שמע חיצוניים ---
+        const GUN_SOUND_URL = "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772616986/volcan_jkbstv.mp3"; 
+        const MISSILE_SOUND_URL = "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772617803/A_hard_metallic_laun__2-1772617789864_olp9kt.mp3";
+        const VOICE_SHAGER_URL = "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772620123/23%D7%A9%D7%92%D7%A8_tqzbgs.mp3";
+        const VOICE_INTRO_URL = "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772622677/ElevenLabs_2026-03-04T11_10_31_%D7%A9%D7%92%D7%A8_ivc_sp100_s50_sb73_v3_s81cl5.mp3"; 
+        const BGM_SOUND_URL = "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772622688/Untitled_21_qtjwka.mp3"; 
+
+        const EXPLOSION_SOUND_URLS = [
+            "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772616342/explosion_goes_boom___2-1772616302546_f2ka1q.mp3",
+            "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772616342/explosion__2-1772616292772_w8t0am.mp3",
+            "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772616342/explosion_goes_boom___1-1772616309782_qtrdsx.mp3",
+            "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772616342/explosion_goes_boom___4-1772616319595_km6b3q.mp3"
+        ];
+
+        const KILL_CONFIRM_SOUND_URLS = [
+            "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772630762/ElevenLabs_2026-03-04T10_22_41_%D7%A9%D7%92%D7%A8_ivc_sp100_s50_sb73_v3_y8efh0.mp3",
+            "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772630761/ElevenLabs_2026-03-04T10_22_06_%D7%A9%D7%92%D7%A8_ivc_sp100_s50_sb73_v3_amocoj.mp3",
+            "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772630760/ElevenLabs_2026-03-04T10_21_38_%D7%A9%D7%92%D7%A8_ivc_sp100_s50_sb73_v3_leqa80.mp3"
+        ];
+
+        // צלילים המושמעים בהתחלת כל שלב
+        const LEVEL_UP_SOUND_URLS = [
+            "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772648666/ElevenLabs_2026-03-04T18_23_04_%D7%A9%D7%92%D7%A8_ivc_sp100_s50_sb73_v3_ayxvyf.mp3",
+            "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772648666/ElevenLabs_2026-03-04T18_21_16_%D7%A9%D7%92%D7%A8_ivc_sp100_s50_sb73_v3_vegzc9.mp3",
+            "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772648666/ElevenLabs_2026-03-04T10_23_24_%D7%A9%D7%92%D7%A8_ivc_sp100_s50_sb73_v3_vahn9m.mp3",
+            "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772648665/ElevenLabs_2026-03-04T18_23_50_%D7%A9%D7%92%D7%A8_ivc_sp100_s50_sb73_v3_gzrm9a.mp3"
+        ];
+
+        // --- משתני מערכת ומשחק ---
+        let scene, camera, renderer;
+        let gameActive = false;
+        let canSpawnEnemies = false; 
+        let ground;
+        let stars; 
+        let level = 1; 
+        let lockedTarget = null; 
+        let lockState = 'NONE'; 
+        let missionStartTime = 0; 
+        let escapedDrones = 0; 
+        let currentPilotName = "טייס אלמוני"; 
+        
+        // משתני מערכת גלים (Waves) חדשים
+        let dronesSpawnedThisWave = 0;
+        let dronesTotalThisWave = 5;
+
+        let isActivelyLocking = false; 
+        let activeLockTimer = 0; 
+        let activeLockTarget = null;
+
+        // משתני הגדרות
+        let sfxVolume = 0.64;
+        let bgmVolume = 0.33;
+        
+        const player = {
+            position: new THREE.Vector3(0, 1500, 0), 
+            rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
+            speed: 300,
+            targetSpeed: 300,
+            lastSpeed: 300,
+            lastY: 1500,
+            maxSpeed: 800,
+            minSpeed: 150,
+            health: 100, 
+            missiles: 10,
+            flares: 3,
+            flareCooldown: 0,
+            missileCooldown: 0,
+            gunCooldown: 0,
+            gunTemp: 0, 
+            gunJammed: false 
+        };
+
+        let visionMode = 0; 
+        
+        const enemies = [];
+        const bullets = [];
+        const missiles = [];
+        const particles = [];
+        const flares = [];
+
+        let audioCtx;
+        let masterNoiseBuffer;
+        let externalGunBuffer = null; 
+        let externalMissileBuffer = null; 
+        let externalVoiceShagerBuffer = null; 
+        let externalVoiceIntroBuffer = null; 
+        let externalBgmBuffer = null; 
+        let bgmSource = null; 
+        let bgmGainNode = null; // לשליטה בעוצמת המוזיקה בזמן אמת
+        let explosionBuffers = []; 
+        let killConfirmBuffers = []; 
+        let levelUpBuffers = []; 
+
+        const audioDataCache = { 
+            gun: null, 
+            missile: null, 
+            voice: null, 
+            voiceIntro: null, 
+            bgm: null, 
+            explosions: [],
+            killConfirms: [],
+            levelUps: []
+        };
+        
+        function preFetchAudio() {
+            const fetchSingle = (url, key) => {
+                if (!url) return;
+                fetch(url).then(r => r.arrayBuffer()).then(b => audioDataCache[key] = b).catch(e => console.error(e));
+            };
+            const fetchArray = (url, arrayKey) => {
+                if (!url) return;
+                fetch(url).then(r => r.arrayBuffer()).then(b => audioDataCache[arrayKey].push(b)).catch(e => console.error(e));
+            };
+
+            fetchSingle(GUN_SOUND_URL, 'gun');
+            fetchSingle(MISSILE_SOUND_URL, 'missile');
+            fetchSingle(VOICE_SHAGER_URL, 'voice');
+            fetchSingle(VOICE_INTRO_URL, 'voiceIntro'); 
+            fetchSingle(BGM_SOUND_URL, 'bgm'); 
+            EXPLOSION_SOUND_URLS.forEach(url => fetchArray(url, 'explosions'));
+            KILL_CONFIRM_SOUND_URLS.forEach(url => fetchArray(url, 'killConfirms'));
+            LEVEL_UP_SOUND_URLS.forEach(url => fetchArray(url, 'levelUps'));
+        }
+        preFetchAudio(); 
+
+        let playerTargetX = 0;
+        let playerTargetY = 1500; 
+        const keys = {};
+
+        function createTerrainTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.fillStyle = '#c2b280';
+            ctx.fillRect(0, 0, 512, 512);
+            
+            ctx.fillStyle = '#a89868';
+            for(let i=0; i<1000; i++) {
+                ctx.beginPath();
+                ctx.arc(Math.random()*512, Math.random()*512, Math.random()*2+1, 0, Math.PI*2);
+                ctx.fill();
+            }
+            
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(0, 0, 512, 512);
+            
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(1000, 1000);
+            return tex;
+        }
+
+        const materials = {
+            groundNormal: new THREE.MeshLambertMaterial({ map: createTerrainTexture() }),
+            groundThermal: new THREE.MeshBasicMaterial({ color: 0x111111, wireframe: true }),
+            droneNormal: new THREE.MeshPhongMaterial({ color: 0x334433, shininess: 30 }),
+            droneNVG: new THREE.MeshBasicMaterial({ color: 0xdddddd }), 
+            droneThermal: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+            skyNormal: new THREE.Color(0x87CEEB),
+            skyNVG: new THREE.Color(0x050505),
+            skyThermal: new THREE.Color(0x000000),
+            fogNormal: new THREE.FogExp2(0x87CEEB, 0.00015),
+            fogNVG: new THREE.FogExp2(0x050505, 0.00015),
+            fogThermal: new THREE.FogExp2(0x000000, 0.0002)
+        };
+
+        function init() {
+            const canvas = document.getElementById('game-canvas');
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+
+            scene = new THREE.Scene();
+            scene.background = materials.skyNormal;
+            scene.fog = materials.fogNormal;
+
+            camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 1, 20000);
+            
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            
+            const dirLight = new THREE.DirectionalLight(0xffeedd, 0.8);
+            dirLight.position.set(1, 1, 1).normalize();
+            scene.add(dirLight);
+
+            createTerrain();
+            createStars();
+            
+            // שחזור שם הטייס האחרון (אם קיים)
+            const savedName = localStorage.getItem('lastPilotName');
+            if (savedName) {
+                document.getElementById('player-name-input').value = savedName;
+            }
+
+            updateStartScreenLeaderboard(); 
+
+            // מאזינים לסליידרים של עוצמת השמע
+            document.getElementById('music-volume').addEventListener('input', function() {
+                bgmVolume = this.value / 100;
+                document.getElementById('music-vol-display').innerText = this.value + '%';
+                if(bgmGainNode) {
+                    bgmGainNode.gain.value = bgmVolume;
+                }
+            });
+
+            document.getElementById('sfx-volume').addEventListener('input', function() {
+                sfxVolume = this.value / 100;
+                document.getElementById('sfx-vol-display').innerText = this.value + '%';
+            });
+
+            window.addEventListener('resize', onWindowResize);
+            document.addEventListener('keydown', (e) => keys[e.code] = true);
+            document.addEventListener('keyup', (e) => handleKeyUp(e));
+            document.addEventListener('mousedown', onMouseDown);
+
+            animate();
+        }
+
+        function handleKeyUp(e) {
+            keys[e.code] = false;
+            if(!gameActive) return;
+
+            if (e.code === 'KeyN') toggleVisionMode(1);
+            if (e.code === 'KeyT') toggleVisionMode(2); 
+            if (e.code === 'KeyM') fireMissile(); 
+            if (e.code === 'KeyF') fireFlare(); // שחרור נור הטעיה
+        }
+
+        function fireFlare() {
+            if (player.flares <= 0 || player.flareCooldown > 0) return;
+            
+            player.flares--;
+            player.flareCooldown = 1.0; // השהייה של שנייה בין נור לנור
+            updateFlareUI();
+            
+            // אפקט קולי קטן לשחרור
+            if (masterNoiseBuffer) {
+                const time = audioCtx.currentTime;
+                const osc = audioCtx.createOscillator();
+                const oscGain = audioCtx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(200, time);
+                osc.frequency.exponentialRampToValueAtTime(50, time + 0.3);
+                oscGain.gain.setValueAtTime(sfxVolume * 0.5, time);
+                oscGain.gain.exponentialRampToValueAtTime(0.01, time + 0.3);
+                osc.connect(oscGain);
+                oscGain.connect(audioCtx.destination);
+                osc.start(time);
+                osc.stop(time + 0.3);
+            }
+
+            // יצירת האובייקט של הנור
+            const flareGroup = new THREE.Group();
+            
+            // יצירת אור חזק
+            const light = new THREE.PointLight(0xff5500, 5, 3000); // אור חזק יותר
+            flareGroup.add(light);
+            
+            // גוף הנור (כדור בוהק)
+            const geo = new THREE.SphereGeometry(6, 8, 8); // גוף קצת יותר גדול
+            const mat = new THREE.MeshBasicMaterial({ color: 0xffddaa });
+            const mesh = new THREE.Mesh(geo, mat);
+            flareGroup.add(mesh);
+
+            // מיקום התחלתי: בקו הראייה, טיפה למטה, כדי שיראו אותו משתחרר
+            flareGroup.position.copy(camera.position);
+            flareGroup.position.y -= 20; 
+            
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+
+            // הנור מקבל את מהירות המטוס *ועוד* מהירות קדימה כדי שיעוף לפני המטוס וימשיך להיראות
+            const extraForwardSpeed = 600; 
+            
+            // אנחנו מוסיפים גם זווית קלה למעלה ולצד (random) כדי שלא יטוס בקו ישר לגמרי
+            const sideSpread = (Math.random() - 0.5) * 100;
+            const upSpread = Math.random() * 50 + 50; // תמיד יקבל דחיפה קלה למעלה
+
+            const velocity = forward.clone().multiplyScalar(player.speed + extraForwardSpeed);
+            velocity.x += sideSpread;
+            velocity.y += upSpread;
+
+            flareGroup.userData = {
+                velocity: velocity,
+                life: 6.0, 
+                emitTimer: 0
+            };
+
+            scene.add(flareGroup);
+            flares.push(flareGroup);
+        }
+
+        function updateFlareUI() {
+            document.getElementById('flare-count').innerText = player.flares;
+            if(player.flares === 0) {
+                document.getElementById('flare-status').innerText = 'EMPTY';
+                document.getElementById('flare-status').style.color = '#f00';
+            } else {
+                document.getElementById('flare-status').innerText = 'WAIT';
+                document.getElementById('flare-status').style.color = '#ffaa00';
+            }
+        }
+
+
+        function createTerrain() {
+            const geometry = new THREE.PlaneGeometry(60000, 600000, 100, 600);
+            geometry.rotateX(-Math.PI / 2);
+            geometry.translate(0, 0, -280000); 
+
+            const vertices = geometry.attributes.position.array;
+            for (let i = 0; i < vertices.length; i += 3) {
+                const x = vertices[i];
+                const z = vertices[i+2];
+                vertices[i+1] = Math.sin(x/800) * 200 + Math.cos(z/600) * 200 + Math.sin((x+z)/1500) * 200;
+            }
+            
+            geometry.computeVertexNormals();
+            ground = new THREE.Mesh(geometry, materials.groundNormal);
+            scene.add(ground);
+        }
+
+        function createStars() {
+            const starGeo = new THREE.BufferGeometry();
+            const starCount = 6000; 
+            const posArray = new Float32Array(starCount * 3);
+            for(let i = 0; i < starCount * 3; i+=3) {
+                posArray[i] = (Math.random() - 0.5) * 100000;
+                posArray[i+1] = Math.random() * 50000 + 500; 
+                posArray[i+2] = (Math.random() - 0.5) * 100000;
+            }
+            starGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+            
+            const starMat = new THREE.PointsMaterial({
+                color: 0xffffff, 
+                size: 2, 
+                sizeAttenuation: false, 
+                fog: false 
+            });
+            stars = new THREE.Points(starGeo, starMat);
+            scene.add(stars);
+        }
+
+        function spawnDrone() {
+            // עוצר היווצרות אם הגל הנוכחי סיים להשתגר
+            if (dronesSpawnedThisWave >= dronesTotalThisWave) return;
+            // הגבלת כמות אויבים על המסך בו-זמנית
+            if (enemies.length >= Math.min(level + 2, 15)) return; 
+
+            const droneGroup = new THREE.Group();
+            droneGroup.scale.set(4, 4, 4);
+
+            const shape = new THREE.Shape();
+            shape.moveTo(0, 4);    
+            shape.lineTo(3, -4);   
+            shape.lineTo(-3, -4);  
+            shape.lineTo(0, 4);
+
+            const extrudeSettings = { depth: 0.5, bevelEnabled: true, bevelSegments: 1, steps: 1, bevelSize: 0.2, bevelThickness: 0.2 };
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            geometry.rotateX(Math.PI / 2); 
+
+            let material = materials.droneNormal;
+            if (visionMode === 1) material = materials.droneNVG;
+            if (visionMode === 2) material = materials.droneThermal;
+
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.rotation.y = Math.PI; 
+            droneGroup.add(mesh);
+
+            const engineGeo = new THREE.CylinderGeometry(0.5, 0.5, 2, 8);
+            engineGeo.rotateX(Math.PI / 2);
+            const engine = new THREE.Mesh(engineGeo, material);
+            engine.position.set(0, 0, -4); 
+            droneGroup.add(engine);
+
+            // --- חזרה למודל ה"כיפי" (80% קמיקזה מולך) ---
+            const behaviorRoll = Math.random();
+            let behavior = 'HEAD_ON'; // רוב הזמן יבואו מולך
+
+            if (behaviorRoll > 0.85) {
+                behavior = 'CHASE'; // 15% יברחו
+            } else if (level >= 3 && behaviorRoll > 0.75) {
+                behavior = 'CROSSING'; // מעט חוצים
+            }
+
+            const spreadMultiplier = Math.min(0.2 + (level * 0.15), 1.2);
+
+            let spawnX = player.position.x;
+            let spawnY = player.position.y + (Math.random() - 0.5) * 1000 * spreadMultiplier; 
+            
+            spawnY = Math.max(1200, Math.min(4500, spawnY));
+
+            let spawnZ = player.position.z;
+            let speed = 100 + (level * 25) + Math.random() * 50;
+            let moveDir = new THREE.Vector3(0, 0, 1);
+
+            if (behavior === 'HEAD_ON') {
+                // הרחבנו מעט את שטח ההופעה כדי שרחפנים לא יעלו אחד על השני באופק
+                spawnX += (Math.random() - 0.5) * 4000 * spreadMultiplier; 
+                spawnZ -= (8000 + Math.random() * 4000); 
+                speed = 120 + (level * 20); 
+                moveDir.set(0, 0, 1).normalize(); 
+            } 
+            else if (behavior === 'CHASE') {
+                spawnX += (Math.random() - 0.5) * 2000 * spreadMultiplier;
+                spawnZ -= (7000 + Math.random() * 2000); 
+                speed = Math.max(150, Math.min(speed, player.maxSpeed - 150)); 
+                moveDir.set(0, 0, -1).normalize(); 
+            } 
+            else if (behavior === 'CROSSING') {
+                const side = Math.random() > 0.5 ? 1 : -1;
+                spawnX += side * (5000 + Math.random() * 2000); 
+                spawnZ -= (6000 + Math.random() * 3000); 
+                moveDir.set(-side * 1.5, 0, 0.5).normalize(); 
+            }
+
+            droneGroup.position.set(spawnX, spawnY, spawnZ);
+            
+            const targetQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), moveDir);
+            droneGroup.quaternion.copy(targetQuat);
+
+            droneGroup.userData = {
+                speed: speed, 
+                health: 100,
+                radius: 15,
+                dodging: false,
+                dodgeDir: new THREE.Vector3(),
+                behavior: behavior
+            };
+
+            scene.add(droneGroup);
+            enemies.push(droneGroup);
+            dronesSpawnedThisWave++; // מעדכן שרחפן נוסף מהגל יצא לדרך
+        }
+
+        function onMouseDown(event) {
+            if(!gameActive) return;
+            if (event.button === 0) {
+                keys['Space'] = true;
+            } else if (event.button === 2) {
+                fireMissile();
+            }
+        }
+        
+        document.addEventListener('mouseup', (event) => {
+            if(event.button === 0) keys['Space'] = false;
+        });
+
+        document.addEventListener('contextmenu', event => event.preventDefault());
+
+        function toggleVisionMode(modeType) {
+            if (visionMode === modeType) {
+                visionMode = 0; 
+            } else {
+                visionMode = modeType;
+            }
+
+            const canvas = document.getElementById('game-canvas');
+            const visionText = document.getElementById('vision-text');
+            const nvgOverlay = document.getElementById('nvg-overlay');
+
+            canvas.classList.remove('night-vision');
+            nvgOverlay.style.display = 'none';
+
+            if (visionMode === 0) {
+                visionText.innerText = 'רגיל';
+                visionText.style.color = '#0f0';
+                scene.background = materials.skyNormal;
+                scene.fog = materials.fogNormal;
+                ground.material = materials.groundNormal;
+                enemies.forEach(e => e.children.forEach(c => c.material = materials.droneNormal));
+                if (stars) stars.material.color.setHex(0xffffff);
+            
+            } else if (visionMode === 1) {
+                visionText.innerText = 'לילה (NVG)';
+                visionText.style.color = '#5f5';
+                canvas.classList.add('night-vision');
+                nvgOverlay.style.display = 'block'; 
+                scene.background = materials.skyNVG;
+                scene.fog = materials.fogNVG;
+                ground.material = materials.groundNormal;
+                enemies.forEach(e => e.children.forEach(c => c.material = materials.droneNVG));
+                if (stars) stars.material.color.setHex(0x00ff00);
+            } else if (visionMode === 2) {
+                visionText.innerText = 'תרמי (FLIR)';
+                visionText.style.color = '#fff';
+                scene.background = materials.skyThermal;
+                scene.fog = materials.fogThermal;
+                ground.material = materials.groundThermal;
+                enemies.forEach(e => e.children.forEach(c => c.material = materials.droneThermal));
+                if (stars) stars.material.color.setHex(0xffffff);
+            }
+        }
+
+        function playExplosionSound() {
+            if(!audioCtx) return;
+            
+            if (explosionBuffers.length > 0) {
+                const randomIndex = Math.floor(Math.random() * explosionBuffers.length);
+                const source = audioCtx.createBufferSource();
+                source.buffer = explosionBuffers[randomIndex];
+                const gainNode = audioCtx.createGain();
+                gainNode.gain.value = sfxVolume; 
+                source.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                source.start(0);
+                return; 
+            }
+
+            if(!masterNoiseBuffer) return;
+            const time = audioCtx.currentTime;
+            
+            const osc = audioCtx.createOscillator();
+            const oscGain = audioCtx.createGain();
+            osc.type = 'sawtooth'; 
+            osc.frequency.setValueAtTime(150, time);
+            osc.frequency.exponentialRampToValueAtTime(15, time + 0.6); 
+            oscGain.gain.setValueAtTime(sfxVolume * 1.5, time);
+            oscGain.gain.exponentialRampToValueAtTime(0.01, time + 1.2);
+            
+            osc.connect(oscGain);
+            oscGain.connect(audioCtx.destination);
+            osc.start(time);
+            osc.stop(time + 1.5);
+
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = masterNoiseBuffer;
+            
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(6000, time); 
+            filter.frequency.exponentialRampToValueAtTime(100, time + 0.8); 
+            
+            const peakFilter = audioCtx.createBiquadFilter();
+            peakFilter.type = 'peaking';
+            peakFilter.frequency.value = 1000;
+            peakFilter.Q.value = 2;
+            peakFilter.gain.value = 10;
+
+            const gain = audioCtx.createGain();
+            gain.gain.setValueAtTime(sfxVolume * 2.0, time); 
+            gain.gain.exponentialRampToValueAtTime(0.01, time + 1.5);
+            
+            noise.connect(filter);
+            filter.connect(peakFilter);
+            peakFilter.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            const offset = Math.random() * 0.5;
+            noise.start(time, offset, 1.5);
+        }
+
+
+        function createExplosion(position) {
+            playExplosionSound();
+
+            const light = new THREE.PointLight(0xffaa00, 5, 2000);
+            light.position.copy(position);
+            scene.add(light);
+            
+            particles.push({
+                isLight: true,
+                light: light,
+                life: 0.5,
+                maxLife: 0.5
+            });
+
+            const particleCount = 80; 
+            const pGeo = new THREE.SphereGeometry(6, 6, 6); 
+            const pMat = new THREE.MeshBasicMaterial({ color: 0xffffff }); 
+
+            for (let i = 0; i < particleCount; i++) {
+                const particle = new THREE.Mesh(pGeo, pMat.clone());
+                particle.position.copy(position);
+                
+                const velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 400,
+                    (Math.random() - 0.5) * 400,
+                    (Math.random() - 0.5) * 400
+                );
+
+                particle.userData = {
+                    velocity: velocity,
+                    life: 1.0 + Math.random() * 1.0,
+                    maxLife: 2.0
+                };
+                
+                scene.add(particle);
+                particles.push(particle);
+            }
+        }
+
+
+        function createHitSpark(position) {
+            const particleCount = 8; 
+            const pGeo = new THREE.SphereGeometry(3, 4, 4); 
+            const pMat = new THREE.MeshBasicMaterial({ color: 0xffdd00 }); 
+            
+            for (let i = 0; i < particleCount; i++) {
+                const spark = new THREE.Mesh(pGeo, pMat.clone());
+                spark.position.copy(position);
+                spark.position.add(new THREE.Vector3((Math.random()-0.5)*10, (Math.random()-0.5)*10, (Math.random()-0.5)*10));
+                
+                const velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 300,
+                    (Math.random() - 0.5) * 300,
+                    (Math.random() - 0.5) * 300
+                );
+
+                spark.userData = {
+                    velocity: velocity,
+                    life: 0.15 + Math.random() * 0.1, 
+                    maxLife: 0.25
+                };
+                
+                scene.add(spark);
+                particles.push(spark);
+            }
+        }
+
+        let lastTime = performance.now();
+        let score = 0;
+
+        let currentMoveSpeedX = 0;
+        let currentMoveSpeedY = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = performance.now();
+            const delta = (time - lastTime) / 1000; 
+            lastTime = time;
+
+            if (gameActive) {
+                updatePlayer(delta);
+                updateAim(delta); 
+                updateWeapons(delta);
+                updateEnemies(delta);
+                updateParticles(delta);
+                updateHUD();
+                updateRadar(); 
+
+                if (canSpawnEnemies) {
+                    const spawnChance = (0.01 + (level * 0.005)) * delta * 120;
+                    if (Math.random() < spawnChance) spawnDrone(); 
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function updatePlayer(delta) {
+            if (keys['KeyW']) player.targetSpeed += 300 * delta;
+            if (keys['KeyS']) player.targetSpeed -= 300 * delta;
+            
+            player.targetSpeed = Math.max(player.minSpeed, Math.min(player.maxSpeed, player.targetSpeed));
+            player.speed += (player.targetSpeed - player.speed) * delta * 2;
+
+            let targetPitch = 0; 
+            let targetRoll = 0;  
+
+            // --- Fine Tuning --- 
+            // הפחתת המהירות המקסימלית הצידית והתאוצה מאפשרת תנועות מיקרוסקופיות עדינות
+            const maxMoveSpeedX = 1800; 
+            const maxMoveSpeedY = 500;
+            const acceleration = 3.5; 
+
+            let targetMoveSpeedX = 0;
+            let targetMoveSpeedY = 0;
+
+            if (keys['ArrowUp']) { targetMoveSpeedY = maxMoveSpeedY; targetPitch = 0.01; }    
+            if (keys['ArrowDown']) { targetMoveSpeedY = -maxMoveSpeedY; targetPitch = -0.01; }  
+            if (keys['ArrowLeft']) { targetMoveSpeedX = -maxMoveSpeedX; targetRoll = 0.02; }  
+            if (keys['ArrowRight']) { targetMoveSpeedX = maxMoveSpeedX; targetRoll = -0.02; } 
+
+            currentMoveSpeedX += (targetMoveSpeedX - currentMoveSpeedX) * delta * acceleration;
+            currentMoveSpeedY += (targetMoveSpeedY - currentMoveSpeedY) * delta * acceleration;
+
+            playerTargetY += currentMoveSpeedY * delta;
+            playerTargetX += currentMoveSpeedX * delta;
+
+            const maxOffsetX = 4500; 
+            playerTargetX = Math.max(-maxOffsetX, Math.min(maxOffsetX, playerTargetX));
+            playerTargetY = Math.max(1200, Math.min(4500, playerTargetY)); 
+
+            const moveDeltaX = (playerTargetX - player.position.x) * delta * 4;
+            const moveDeltaY = (playerTargetY - player.position.y) * delta * 4;
+            
+            player.position.x += moveDeltaX;
+            player.position.y += moveDeltaY;
+            player.position.z -= player.speed * delta;
+
+            player.rotation.x += (targetPitch - player.rotation.x) * delta * 5;
+            player.rotation.z += (targetRoll - player.rotation.z) * delta * 5;
+            player.rotation.y = 0; 
+
+            camera.quaternion.setFromEuler(player.rotation);
+            camera.position.copy(player.position);
+
+            if (stars) {
+                stars.position.x = player.position.x;
+                stars.position.z = player.position.z;
+            }
+
+            if (keys['Space']) fireGun();
+
+            if (player.gunCooldown > 0) player.gunCooldown -= delta;
+            
+            if (player.gunTemp > 0) {
+                // הוגדל קצב ההתקררות מ-15 ל-30, כך שהנשק מתקרר פי 2 יותר מהר
+                player.gunTemp -= 30 * delta; 
+                if (player.gunTemp <= 0) player.gunTemp = 0;
+            }
+            if (player.gunJammed && player.gunTemp < 40) {
+                player.gunJammed = false;
+            }
+
+            if (player.missileCooldown > 0) {
+                player.missileCooldown -= delta;
+                if(player.missileCooldown <= 0) {
+                    document.getElementById('missile-status').innerText = 'RDY';
+                    document.getElementById('missile-status').style.color = '#0f0';
+                }
+            }
+
+            if (player.flareCooldown > 0) {
+                player.flareCooldown -= delta;
+                if(player.flareCooldown <= 0 && player.flares > 0) {
+                    document.getElementById('flare-status').innerText = 'RDY';
+                    document.getElementById('flare-status').style.color = '#0f0';
+                }
+            }
+        }
+
+        function fireGun() {
+            if (player.gunCooldown > 0 || player.gunJammed) return;
+            player.gunCooldown = 0.08; 
+
+            player.gunTemp += 3;
+            if (player.gunTemp >= 100) {
+                player.gunTemp = 100;
+                player.gunJammed = true;
+            }
+
+            playGunSound();
+
+            const flash = document.getElementById('muzzle-flash');
+            flash.style.opacity = '1';
+            setTimeout(() => { flash.style.opacity = '0'; }, 40);
+
+            let hitTarget = null;
+            let closestDist = Infinity;
+            
+            // הוקטן פיזור הקליעים למצב של דיוק מקסימלי
+            const spreadAmount = 0.005; 
+            const spreadX = (Math.random() - 0.5) * spreadAmount;
+            const spreadY = (Math.random() - 0.5) * spreadAmount;
+            
+            const bulletDir = new THREE.Vector3(spreadX, spreadY, -1).applyQuaternion(camera.quaternion).normalize();
+
+            const hitRadius = 8;
+
+            for (let i = 0; i < enemies.length; i++) {
+                const e = enemies[i];
+                
+                if (e.position.z >= player.position.z) continue;
+
+                const toEnemy = e.position.clone().sub(player.position);
+                const distAlongRay = toEnemy.dot(bulletDir); 
+
+                if (distAlongRay > 0) {
+                    const projection = bulletDir.clone().multiplyScalar(distAlongRay);
+                    const perpDist = toEnemy.clone().sub(projection).length();
+
+                    if (perpDist < hitRadius && distAlongRay < closestDist) {
+                        closestDist = distAlongRay;
+                        hitTarget = { enemy: e, index: i };
+                    }
+                }
+            }
+
+            if (hitTarget) {
+                // נזק הועלה ל-100! (הריגה במכה) כדי שרחפנים סמוכים לא יחלקו נזק לאורך זמן
+                hitTarget.enemy.userData.health -= 100; 
+                createHitSpark(hitTarget.enemy.position); 
+
+                if (hitTarget.enemy.userData.health <= 0) {
+                    destroyDrone(hitTarget.index);
+                }
+            }
+
+            const bulletGeo = new THREE.CylinderGeometry(0.3, 0.3, 25, 4);
+            bulletGeo.rotateX(Math.PI / 2);
+            const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+
+            const forwardOffset = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize().multiplyScalar(20);
+            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
+            
+            const wingOffsetDist = 4; 
+
+            const bulletL = new THREE.Mesh(bulletGeo, bulletMat);
+            bulletL.position.copy(camera.position).add(forwardOffset).sub(right.clone().multiplyScalar(wingOffsetDist));
+            bulletL.quaternion.copy(camera.quaternion);
+
+            const bulletR = new THREE.Mesh(bulletGeo, bulletMat);
+            bulletR.position.copy(camera.position).add(forwardOffset).add(right.clone().multiplyScalar(wingOffsetDist));
+            bulletR.quaternion.copy(camera.quaternion);
+            
+            // הקליעים הוויזואליים עפים עכשיו בדיוק באותו מסלול מפוזר של חישוב הפגיעה
+            bulletL.userData = { velocity: bulletDir.clone().multiplyScalar(4000), life: 2.0 };
+            bulletR.userData = { velocity: bulletDir.clone().multiplyScalar(4000), life: 2.0 };
+
+            scene.add(bulletL);
+            scene.add(bulletR);
+            bullets.push(bulletL, bulletR);
+        }
+
+        // --- שחזור פונקציות הטילים החסרות ---
+        function fireMissile() {
+            if (player.missiles <= 0 || player.missileCooldown > 0) return;
+            if (isActivelyLocking) return; 
+
+            if (lockState === 'LOCKED' && lockedTarget) {
+                isActivelyLocking = true;
+                activeLockTimer = 1.5; // זמן נעילה קוצר ל-1.5 שניות כדי לפצות על התנועה החלקה
+                activeLockTarget = lockedTarget;
+                playVoiceShagerSound();
+            } else {
+                player.missiles--;
+                player.missileCooldown = 2.0; 
+                updateMissileUI();
+                executeMissileLaunch(null);
+            }
+        }
+
+        function updateMissileUI() {
+            document.getElementById('missile-count').innerText = player.missiles;
+            document.getElementById('missile-status').innerText = 'COOL';
+            document.getElementById('missile-status').style.color = '#f00';
+        }
+
+        function executeMissileLaunch(target) {
+            playMissileSound();
+
+            const missileGroup = new THREE.Group();
+            
+            const geo = new THREE.CylinderGeometry(0.4, 0.4, 6, 8);
+            geo.rotateX(Math.PI / 2);
+            const mat = new THREE.MeshLambertMaterial({ color: 0xdddddd });
+            const mesh = new THREE.Mesh(geo, mat);
+            missileGroup.add(mesh);
+
+            missileGroup.position.copy(camera.position);
+            missileGroup.position.y -= 2;
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            missileGroup.quaternion.copy(camera.quaternion);
+
+            const evasionChance = Math.min(0.05 + (level * 0.05), 0.50);
+            const willEvade = target && (Math.random() < evasionChance);
+
+            missileGroup.userData = {
+                velocity: forward.clone().multiplyScalar(player.speed + 100),
+                speed: player.speed + 1200, 
+                life: 10.0,
+                damage: 100,
+                target: target,
+                evadeTriggered: false,
+                willEvade: willEvade
+            };
+
+            scene.add(missileGroup);
+            missiles.push(missileGroup);
+        }
+        // ------------------------------------
+
+        function updateAim(delta) {
+            let previousLockTarget = lockedTarget;
+            lockedTarget = null;
+            lockState = 'NONE';
+            let minAngle = Infinity;
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+
+            let closestEnemy = null;
+            let minEnemyDist = Infinity;
+
+            // --- בדיקת כוונת וולקן (האם רחפן נמצא בדיוק על הצלב החלול) ---
+            let vulcanTargetInSights = false;
+            const hitRadius = 15; // רדיוס פגיעת הוולקן
+            
+            for (let i = 0; i < enemies.length; i++) {
+                const e = enemies[i];
+                if (e.position.z >= player.position.z) continue;
+                const toEnemy = e.position.clone().sub(player.position);
+                const distAlongRay = toEnemy.dot(forward);
+                
+                if (distAlongRay > 0) {
+                    const projection = forward.clone().multiplyScalar(distAlongRay);
+                    const perpDist = toEnemy.clone().sub(projection).length();
+                    // חיווי יידלק קצת לפני שהרחפן בתוך הרדיוס המדויק, כדי לעזור לכיוון
+                    if (perpDist < hitRadius * 1.8) {
+                        vulcanTargetInSights = true;
+                    }
+                }
+            }
+
+            if (isActivelyLocking) {
+                if (activeLockTarget && activeLockTarget.parent === scene) {
+                    const toEnemy = activeLockTarget.position.clone().sub(player.position).normalize();
+                    const angle = forward.angleTo(toEnemy);
+                    
+                    // זווית הנעילה הממושכת הוגדלה מעט ל-0.20 כדי שיהיה יותר הוגן עם מערכת ההחלקה של המטוס
+                    if (angle < 0.20 && activeLockTarget.position.z < player.position.z) {
+                        activeLockTimer -= delta;
+                        lockedTarget = activeLockTarget;
+                        lockState = 'LOCKING_ACTIVE';
+
+                        if (activeLockTimer <= 0) {
+                            isActivelyLocking = false;
+                            player.missiles--;
+                            player.missileCooldown = 2.0;
+                            updateMissileUI();
+                            executeMissileLaunch(activeLockTarget);
+                        }
+                    } else {
+                        isActivelyLocking = false;
+                        activeLockTarget = null;
+                    }
+                } else {
+                    isActivelyLocking = false;
+                    activeLockTarget = null;
+                }
+            }
+
+            if (!isActivelyLocking) {
+                for (let i = 0; i < enemies.length; i++) {
+                    const e = enemies[i];
+                    
+                    if (e.position.z < player.position.z) {
+                        const currentDist = player.position.distanceTo(e.position);
+                        if (currentDist < minEnemyDist) {
+                            minEnemyDist = currentDist;
+                            closestEnemy = e;
+                        }
+                    }
+
+                    const toEnemy = e.position.clone().sub(player.position).normalize();
+                    const angle = forward.angleTo(toEnemy);
+                    const distanceToEnemy = player.position.distanceTo(e.position);
+                    
+                    const vPlayer = new THREE.Vector3(0, 0, -player.speed);
+                    const eDir = new THREE.Vector3(0, 0, 1).applyQuaternion(e.quaternion);
+                    const vEnemy = eDir.multiplyScalar(e.userData.speed);
+                    
+                    const pNext = player.position.clone().add(vPlayer);
+                    const eNext = e.position.clone().add(vEnemy);
+                    const distNext = pNext.distanceTo(eNext);
+                    const closingSpeed = distanceToEnemy - distNext;
+                    
+                    let timeToIntercept = Infinity;
+                    if (closingSpeed > 0) {
+                        timeToIntercept = distanceToEnemy / closingSpeed;
+                    }
+                    
+                    // --- הגבלת טווח הופעת מסגרת הנעילה ---
+                    // המסגרת תופיע רק כאשר הרחפן קרוב מ-4000 (בערך "אמצע הדרך"), במקום 8000.
+                    if (angle < 0.35 && e.position.z < player.position.z && angle < minAngle && distanceToEnemy < 4000) {
+                        minAngle = angle;
+                        lockedTarget = e;
+                    }
+                }
+                
+                if (lockedTarget) {
+                    if (minAngle < 0.08) {
+                        lockState = 'LOCKED';
+                    } else {
+                        lockState = 'ACQ';
+                    }
+                }
+            }
+            
+            const crosshair = document.getElementById('crosshair');
+            const targetBox = document.getElementById('target-box');
+            
+            // הפעלת חיווי וולקן
+            if (vulcanTargetInSights) {
+                crosshair.classList.add('in-sights');
+            } else {
+                crosshair.classList.remove('in-sights');
+            }
+
+            if (lockedTarget) {
+                targetBox.style.display = 'block';
+                
+                if (lockState === 'LOCKING_ACTIVE') {
+                    crosshair.classList.add('locked');
+                    targetBox.className = 'locking-active'; 
+                } else if (lockState === 'LOCKED') {
+                    crosshair.classList.add('locked');
+                    targetBox.className = 'locked';
+                } else {
+                    crosshair.classList.remove('locked');
+                    targetBox.className = 'acquiring';
+                }
+                
+                const vector = lockedTarget.position.clone();
+                vector.project(camera);
+                
+                const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
+                const y = (-(vector.y * 0.5) + 0.5) * window.innerHeight;
+                
+                targetBox.style.left = `${x}px`;
+                targetBox.style.top = `${y}px`;
+            } else {
+                crosshair.classList.remove('locked');
+                targetBox.style.display = 'none';
+                targetBox.className = '';
+            }
+
+            const dirWrapper = document.getElementById('direction-wrapper');
+            if (closestEnemy && !isActivelyLocking) {
+                const vector = closestEnemy.position.clone();
+                vector.project(camera);
+
+                if (vector.z < 1) { 
+                    const radiusFromCenter = Math.sqrt(vector.x * vector.x + vector.y * vector.y);
+                    
+                    if (radiusFromCenter > 0.25) {
+                        const rotDeg = Math.atan2(vector.x, vector.y) * 180 / Math.PI;
+                        dirWrapper.style.transform = `translate(-50%, -50%) rotate(${rotDeg}deg)`;
+                        dirWrapper.style.display = 'block';
+                    } else {
+                        dirWrapper.style.display = 'none';
+                    }
+                } else {
+                    dirWrapper.style.display = 'none';
+                }
+            } else {
+                dirWrapper.style.display = 'none';
+            }
+        }
+
+        function updateWeapons(delta) {
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i];
+                b.position.add(b.userData.velocity.clone().multiplyScalar(delta));
+                b.userData.life -= delta;
+
+                if (b.userData.life <= 0) {
+                    scene.remove(b);
+                    bullets.splice(i, 1);
+                }
+            }
+
+            for (let i = missiles.length - 1; i >= 0; i--) {
+                const m = missiles[i];
+                m.userData.life -= delta;
+
+                if (m.userData.target && m.userData.target.parent === scene) {
+                    const distToTarget = m.position.distanceTo(m.userData.target.position);
+                    
+                    if (m.userData.willEvade && !m.userData.evadeTriggered && distToTarget < 600) {
+                        m.userData.evadeTriggered = true;
+                        m.userData.target.userData.dodging = true;
+                        m.userData.target.userData.dodgeDir = new THREE.Vector3((Math.random()-0.5)*1500, (Math.random()-0.5)*1500, 0);
+                        m.userData.target = null; 
+                    } else {
+                        const targetPos = m.userData.target.position;
+                        const dirToTarget = targetPos.clone().sub(m.position).normalize();
+                        const currentDir = new THREE.Vector3(0, 0, -1).applyQuaternion(m.quaternion);
+                        
+                        currentDir.lerp(dirToTarget, delta * 3).normalize();
+                        const targetRotation = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), currentDir);
+                        m.quaternion.slerp(targetRotation, delta * 8);
+                        m.userData.velocity = currentDir.multiplyScalar(m.userData.speed);
+                    }
+                }
+
+                m.position.add(m.userData.velocity.clone().multiplyScalar(delta));
+                
+                const trailGeo = new THREE.SphereGeometry(1.5, 4, 4);
+                const trailMat = new THREE.MeshBasicMaterial({color: 0xffaa00});
+                const trail = new THREE.Mesh(trailGeo, trailMat);
+                trail.position.copy(m.position);
+                trail.position.add(new THREE.Vector3((Math.random()-0.5)*2, (Math.random()-0.5)*2, (Math.random()-0.5)*2));
+                trail.userData = { velocity: new THREE.Vector3(0,0,0), life: 0.5, maxLife: 0.5 };
+                scene.add(trail);
+                particles.push(trail);
+
+                let hit = false;
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const e = enemies[j];
+                    if (m.position.distanceTo(e.position) < e.userData.radius * 4) {
+                        createExplosion(e.position);
+                        destroyDrone(j);
+                        hit = true;
+                        break;
+                    }
+                }
+
+                if (m.userData.life <= 0 || hit || m.position.y < 0) {
+                    if (!hit) createExplosion(m.position); 
+                    scene.remove(m);
+                    missiles.splice(i, 1);
+                }
+            }
+
+            // עדכון נורים (Flares)
+            for (let i = flares.length - 1; i >= 0; i--) {
+                const f = flares[i];
+                
+                // עדכון מיקום הנור
+                f.position.add(f.userData.velocity.clone().multiplyScalar(delta));
+                
+                // הנור נופל למטה עקב כוח המשיכה (הופחת מעט), ומאט בגלל חיכוך אוויר
+                f.userData.velocity.y -= 80 * delta; // נופל יותר לאט כדי שיישאר באוויר
+                f.userData.velocity.x *= 0.99;
+                f.userData.velocity.z *= 0.99;
+                
+                f.userData.life -= delta;
+                f.userData.emitTimer += delta;
+
+                // שובל עשן/אש לנור (תדירות גבוהה יותר)
+                if (f.userData.emitTimer > 0.03) {
+                    f.userData.emitTimer = 0;
+                    const trailGeo = new THREE.SphereGeometry(6, 4, 4); // חלקיקים גדולים יותר כדי לבלוט
+                    const trailMat = new THREE.MeshBasicMaterial({color: 0xff3300});
+                    const trail = new THREE.Mesh(trailGeo, trailMat);
+                    trail.position.copy(f.position);
+                    trail.position.add(new THREE.Vector3((Math.random()-0.5)*10, (Math.random()-0.5)*10, (Math.random()-0.5)*10));
+                    
+                    // החלקיקים עפים לאט כדי להשאיר שובל ארוך
+                    trail.userData = { velocity: new THREE.Vector3(0,10,0), life: 1.5, maxLife: 1.5 };
+                    scene.add(trail);
+                    particles.push(trail);
+                }
+
+                // היעלמות הנור
+                if (f.userData.life <= 0 || f.position.y < 0) {
+                    scene.remove(f);
+                    flares.splice(i, 1);
+                }
+            }
+        }
+
+        function updateEnemies(delta) {
+            let closeWarning = false;
+            let kamikazeWarning = false;
+
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
+                const distToPlayer = e.position.distanceTo(player.position);
+
+                // --- מנגנון התבייתות חדש (בודק אם יש נור קרוב שמטעה את הרחפן) ---
+                let isDecoyed = false;
+                let targetPos = player.position.clone();
+                let distToTarget = distToPlayer;
+
+                // בודקים אם יש נורים פעילים רק אם הרחפן קמיקזה. 
+                // טווח המשיכה של הנור הוגדל משמעותית ל-6000 מטר!
+                if (e.userData.behavior === 'HEAD_ON' && distToPlayer < 6000) {
+                    for (let j = 0; j < flares.length; j++) {
+                        const f = flares[j];
+                        const distToFlare = e.position.distanceTo(f.position);
+                        
+                        // הרחפן יעדיף את הנור אם הנור קרוב יותר מהשחקן *או* אם הנור פשוט פעיל והרחפן קרוב אליו יחסית
+                        // מורידים את התנאי שהנור חייב להיות מלפניו כדי שהמשיכה תהיה חזקה יותר
+                        if (distToFlare < 4000) { 
+                            targetPos = f.position.clone();
+                            distToTarget = distToFlare;
+                            isDecoyed = true;
+                            break; // מצא נור, מפסיק לחפש
+                        }
+                    }
+                }
+
+                // --- שינוי התנהגות קמיקזה (עפים ישר, צוללים רק מקרוב או מתבייתים על נור) ---
+                if (e.userData.behavior === 'HEAD_ON' && e.position.z < player.position.z + 200 && !e.userData.dodging) {
+                    
+                    // מתביית רק אם הוא הוטעה ע"י נור, או אם הוא פשוט התקרב לשחקן
+                    if (isDecoyed || distToPlayer < 2500) {
+                        const dirToTarget = targetPos.clone().sub(e.position).normalize();
+                        const currentDir = new THREE.Vector3(0, 0, 1).applyQuaternion(e.quaternion);
+                        
+                        // מהירות פנייה חדה מאוד כשהוא מוסח על ידי נור! (פי 2 יותר חזק)
+                        let turnSpeed = delta * (1.5 + level * 0.4); 
+                        if (isDecoyed) {
+                            turnSpeed *= 2.5; 
+                        }
+                        
+                        currentDir.lerp(dirToTarget, turnSpeed).normalize();
+                        
+                        const newQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), currentDir);
+                        e.quaternion.copy(newQuat);
+                    }
+                }
+
+                const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(e.quaternion);
+                
+                if (e.userData.dodging) {
+                    e.position.add(e.userData.dodgeDir.clone().multiplyScalar(delta));
+                    e.userData.dodgeDir.multiplyScalar(0.9); 
+                }
+                
+                e.position.add(dir.multiplyScalar(e.userData.speed * delta));
+
+                if (distToPlayer < 1500 && e.position.z < player.position.z) {
+                    closeWarning = true;
+                    // אזהרת ההתנגשות לא תופעל אם הרחפן הוטעה והוא כרגע רודף אחרי נור
+                    if (distToPlayer < 600 && !isDecoyed) kamikazeWarning = true;
+                }
+
+                // בדיקת פגיעה בשחקן
+                if (distToPlayer < 80) { 
+                    takeDamage(35); 
+                    createExplosion(e.position);
+                    destroyDrone(i, true); 
+                } 
+                // בדיקת פגיעה בנור הטעיה (טווח פגיעה הוגדל קצת ל-100 כדי להבטיח התפוצצות)
+                else if (isDecoyed && distToTarget < 100) {
+                    createExplosion(e.position);
+                    destroyDrone(i, true); // משמיד את הרחפן, ללא ניקוד (כמו התרסקות)
+                }
+                else if (e.position.z > player.position.z + 2000) { 
+                    scene.remove(e);
+                    enemies.splice(i, 1);
+                    
+                    escapedDrones++;
+                    document.getElementById('escaped-count').innerText = escapedDrones;
+                    if (escapedDrones >= 5) {
+                        gameOver("המשימה נכשלה - האויב חדר את ההגנות!");
+                    } else {
+                        checkLevelCompletion(); // בודק אם זה היה הרחפן האחרון בגל
+                    }
+                }
+            }
+
+            const radarText = document.getElementById('radar-warning');
+            if (kamikazeWarning) {
+                radarText.innerText = 'סכנת התנגשות!!!';
+                radarText.style.color = '#f00';
+                radarText.style.animation = 'text-blink 0.2s infinite';
+            } else if (closeWarning) {
+                radarText.innerText = 'התרעה: מטרות קרובות!';
+                radarText.style.color = '#ffaa00';
+                radarText.style.animation = 'none';
+            } else {
+                radarText.innerText = 'נקי';
+                radarText.style.color = '#aaa';
+                radarText.style.animation = 'none';
+            }
+        }
+
+        function updateParticles(delta) {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                
+                if (p.isLight) {
+                    p.life -= delta;
+                    p.light.intensity = (p.life / p.maxLife) * 5;
+                    if (p.life <= 0) {
+                        scene.remove(p.light);
+                        particles.splice(i, 1);
+                    }
+                    continue;
+                }
+
+                p.position.add(p.userData.velocity.clone().multiplyScalar(delta));
+                p.userData.life -= delta;
+                
+                const lifeRatio = p.userData.life / p.userData.maxLife;
+
+                p.scale.multiplyScalar(0.92);
+                
+                if (lifeRatio > 0.8) {
+                    p.material.color.setHex(0xffffff);
+                } else if (lifeRatio > 0.5) {
+                    p.material.color.lerp(new THREE.Color(0xffaa00), delta * 10);
+                } else if (lifeRatio > 0.2) {
+                    p.material.color.lerp(new THREE.Color(0xff0000), delta * 10);
+                } else {
+                    p.material.color.lerp(new THREE.Color(0x222222), delta * 10);
+                }
+
+                if (p.userData.life <= 0) {
+                    scene.remove(p);
+                    particles.splice(i, 1);
+                }
+            }
+        }
+
+        function playKillConfirmSound() {
+            if(!audioCtx || killConfirmBuffers.length === 0) return;
+            const randomIndex = Math.floor(Math.random() * killConfirmBuffers.length);
+            const source = audioCtx.createBufferSource();
+            source.buffer = killConfirmBuffers[randomIndex];
+            const gainNode = audioCtx.createGain();
+            gainNode.gain.value = sfxVolume * 1.5; 
+            source.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            source.start(0);
+        }
+        
+        function playLevelUpSound() {
+            if(!audioCtx || levelUpBuffers.length === 0) return;
+            const randomIndex = Math.floor(Math.random() * levelUpBuffers.length);
+            const source = audioCtx.createBufferSource();
+            source.buffer = levelUpBuffers[randomIndex];
+            const gainNode = audioCtx.createGain();
+            gainNode.gain.value = sfxVolume * 1.8; 
+            source.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            source.start(0);
+        }
+
+        function destroyDrone(index, isCrash = false) {
+            const e = enemies[index];
+            createExplosion(e.position);
+            scene.remove(e);
+            enemies.splice(index, 1);
+            
+            if (!isCrash) {
+                playKillConfirmSound(); 
+
+                score++;
+                document.getElementById('score').innerText = score;
+            }
+            
+            checkLevelCompletion();
+        }
+
+        function checkLevelCompletion() {
+            // השלב עולה רק אם כל רחפני הגל נוצרו, ואין יותר רחפנים באוויר
+            if (gameActive && dronesSpawnedThisWave >= dronesTotalThisWave && enemies.length === 0) {
+                levelUp();
+            }
+        }
+
+        function levelUp() {
+            level++;
+            document.getElementById('level').innerText = level;
+            
+            playLevelUpSound();
+            
+            player.missiles = 10;
+            document.getElementById('missile-count').innerText = player.missiles;
+
+            player.flares = 3;
+            document.getElementById('flare-count').innerText = player.flares;
+            document.getElementById('flare-status').innerText = 'RDY';
+            document.getElementById('flare-status').style.color = '#0f0';
+            
+            escapedDrones = 0;
+            document.getElementById('escaped-count').innerText = escapedDrones;
+            
+            // עדכון גודל הגל הבא (כמות הרחפנים עולה ככל שמתקדמים בשלבים)
+            dronesTotalThisWave = 5 + (level * 2);
+            dronesSpawnedThisWave = 0;
+            
+            canSpawnEnemies = false;
+            isActivelyLocking = false;
+            activeLockTarget = null;
+            lockedTarget = null;
+
+            setTimeout(() => { 
+                if (gameActive) canSpawnEnemies = true; 
+            }, 3500);
+        }
+
+        function takeDamage(amount) {
+            player.health -= amount;
+            document.getElementById('health').innerText = Math.max(0, Math.floor(player.health));
+            
+            const overlay = document.getElementById('damage-overlay');
+            overlay.style.opacity = '1';
+            setTimeout(() => { overlay.style.opacity = '0'; }, 200);
+
+            if (player.health <= 0) {
+                gameOver("המטוס הושמד בקרב!");
+            }
+        }
+
+        function applyHudMode() {
+            const mode = document.getElementById('hud-mode').value;
+            const glass = document.getElementById('hud-glass-layer');
+            const top = document.getElementById('hud-top-layer');
+            const heading = document.getElementById('hud-heading-layer');
+            const pitch = document.getElementById('hud-pitch-layer');
+            const left = document.getElementById('hud-left-layer');
+            const right = document.getElementById('hud-right-layer');
+            const bottom = document.getElementById('hud-bottom-layer');
+            const sys = document.getElementById('hud-sys-layer');
+
+            // איפוס הכל למוצג
+            glass.style.display = 'block';
+            top.style.display = 'block';
+            heading.style.display = 'block';
+            pitch.style.display = 'block';
+            left.style.display = 'flex';
+            right.style.display = 'flex';
+            bottom.style.display = 'flex';
+            sys.style.display = 'block';
+
+            if (mode === 'partial') {
+                heading.style.display = 'none';
+                pitch.style.display = 'none';
+                left.style.display = 'none';
+                right.style.display = 'none';
+                sys.style.display = 'none';
+            } else if (mode === 'minimal') {
+                glass.style.display = 'none';
+                top.style.display = 'none';
+                heading.style.display = 'none';
+                pitch.style.display = 'none';
+                left.style.display = 'none';
+                right.style.display = 'none';
+                bottom.style.display = 'none';
+            }
+        }
+
+        function updateHUD() {
+            const delta = (performance.now() - lastTime) / 1000 || 0.016;
+            
+            const currentSpeedKts = player.speed * 1.5;
+            document.getElementById('speed-box').innerText = Math.floor(currentSpeedKts);
+            document.getElementById('mach-text').innerText = (currentSpeedKts / 666).toFixed(2); 
+
+            const currentAltFt = player.position.y * 3.28;
+            const vs = ((player.position.y - player.lastY) / delta) * 60 * 3.28; 
+            player.lastY = player.position.y;
+            document.getElementById('alt-box').innerText = Math.floor(currentAltFt);
+            document.getElementById('vs-text').innerText = (vs >= 0 ? '+' : '') + Math.floor(vs / 100) * 100;
+
+            const accel = (player.speed - player.lastSpeed) / delta;
+            player.lastSpeed = player.speed;
+            const gForce = 1.0 + (accel / 500) + Math.abs(player.rotation.x * 2);
+            document.getElementById('g-force').innerText = gForce.toFixed(1);
+
+            const elapsed = (performance.now() - missionStartTime) / 1000;
+            const m = Math.floor(elapsed / 60).toString().padStart(2, '0');
+            const s = Math.floor(elapsed % 60).toString().padStart(2, '0');
+            document.getElementById('mission-time').innerText = `T+ ${m}:${s}`;
+
+            const pitchOffset = player.rotation.x * 1200; 
+            document.getElementById('pitch-ladder-left').style.transform = `translateY(calc(-50% + ${pitchOffset}px))`;
+            document.getElementById('pitch-ladder-right').style.transform = `translateY(calc(-50% + ${pitchOffset}px))`;
+
+            const headingOffset = (player.position.x / 2500) * 80; 
+            document.getElementById('heading-tape').style.transform = `translateX(calc(-50% + ${-headingOffset}px))`;
+
+            const tempBarCount = Math.floor(player.gunTemp / 10);
+            let barStr = '[';
+            for(let i=0; i<10; i++) barStr += (i < tempBarCount) ? '█' : '-';
+            barStr += ']';
+            
+            const heatDisplay = document.getElementById('gun-heat-display');
+            const gunStatus = document.getElementById('gun-status');
+            
+            if (player.gunJammed) {
+                gunStatus.innerHTML = '<span style="color:#f00; animation: blink 0.5s infinite;">JAM</span>';
+                heatDisplay.innerHTML = `<span style="color:#f00;">TEMP: ${barStr} ${Math.floor(player.gunTemp)}&deg;C</span>`;
+            } else {
+                gunStatus.innerHTML = '<span style="color:#0f0">RDY</span>';
+                const heatColor = player.gunTemp > 70 ? '#ff5500' : '#0f0';
+                heatDisplay.innerHTML = `<span style="color:${heatColor}">TEMP: ${barStr} ${Math.floor(player.gunTemp)}&deg;C</span>`;
+            }
+        }
+
+        const style = document.createElement('style');
+        style.innerHTML = `@keyframes blink { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }`;
+        document.head.appendChild(style);
+
+        function updateRadar() {
+            const canvas = document.getElementById('radar-canvas');
+            if(!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            const center = width / 2;
+            const radius = width / 2;
+
+            ctx.clearRect(0, 0, width, height);
+
+            ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(center, center, radius * 0.33, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(center, center, radius * 0.66, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(center, 0); ctx.lineTo(center, height);
+            ctx.moveTo(0, center); ctx.lineTo(width, center);
+            ctx.stroke();
+
+            const t = performance.now() / 1000;
+            const sweepAngle = (t * Math.PI) % (2 * Math.PI) - Math.PI / 2; 
+            
+            ctx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+            ctx.beginPath();
+            ctx.moveTo(center, center);
+            ctx.arc(center, center, radius, sweepAngle, sweepAngle - 0.6, true);
+            ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)';
+            ctx.beginPath();
+            ctx.moveTo(center, center);
+            ctx.lineTo(center + Math.cos(sweepAngle) * radius, center + Math.sin(sweepAngle) * radius);
+            ctx.stroke();
+
+            const maxRadarRange = 15000; 
+            ctx.fillStyle = '#ff0000'; 
+            
+            for(let i = 0; i < enemies.length; i++) {
+                const e = enemies[i];
+                const dx = e.position.x - player.position.x;
+                const dz = e.position.z - player.position.z; 
+                
+                const rx = (dx / maxRadarRange) * radius;
+                const ry = (dz / maxRadarRange) * radius; 
+
+                const dist = Math.sqrt(rx*rx + ry*ry);
+                if (dist < radius - 3) {
+                    ctx.beginPath();
+                    ctx.arc(center + rx, center + ry, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function initAudio() {
+            if (audioCtx) {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                return;
+            }
+            
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioCtx = new AudioContext();
+            
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            const bufferSize = audioCtx.sampleRate * 2.0; 
+            masterNoiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = masterNoiseBuffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+
+            const decode = (arrayBuffer, callback) => {
+                if (!arrayBuffer) return;
+                audioCtx.decodeAudioData(arrayBuffer.slice(0), callback, e => console.error("Decode err", e));
+            };
+
+            decode(audioDataCache.gun, b => externalGunBuffer = b);
+            decode(audioDataCache.missile, b => externalMissileBuffer = b);
+            decode(audioDataCache.voice, b => externalVoiceShagerBuffer = b);
+            decode(audioDataCache.voiceIntro, b => externalVoiceIntroBuffer = b); 
+            decode(audioDataCache.bgm, b => externalBgmBuffer = b); 
+            
+            audioDataCache.explosions.forEach(ab => {
+                decode(ab, b => explosionBuffers.push(b));
+            });
+
+            audioDataCache.killConfirms.forEach(ab => {
+                decode(ab, b => killConfirmBuffers.push(b));
+            });
+
+            audioDataCache.levelUps.forEach(ab => {
+                decode(ab, b => levelUpBuffers.push(b));
+            });
+        }
+
+        document.addEventListener('mousedown', () => {
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        });
+        document.addEventListener('keydown', () => {
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        });
+
+        function playGunSound() {
+            if(!audioCtx) return;
+            if (externalGunBuffer) {
+                const source = audioCtx.createBufferSource();
+                source.buffer = externalGunBuffer;
+                const gainNode = audioCtx.createGain();
+                gainNode.gain.value = sfxVolume; 
+                source.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                source.start(0);
+            }
+        }
+
+        function playVoiceShagerSound() {
+            if(!audioCtx || !externalVoiceShagerBuffer) return;
+            const source = audioCtx.createBufferSource();
+            source.buffer = externalVoiceShagerBuffer;
+            const gainNode = audioCtx.createGain();
+            gainNode.gain.value = sfxVolume * 1.5; 
+            source.connect(gainNode);
+            gainNode.connect(audioCtx.destination); 
+            source.start(0);
+        }
+
+        function playVoiceIntroSound() {
+            if(!audioCtx) return;
+            if(!externalVoiceIntroBuffer) {
+                setTimeout(playVoiceIntroSound, 100);
+                return;
+            }
+            const source = audioCtx.createBufferSource();
+            source.buffer = externalVoiceIntroBuffer;
+            const gainNode = audioCtx.createGain();
+            gainNode.gain.value = sfxVolume * 1.8; 
+            source.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            source.start(0);
+        }
+
+        function playBGM() {
+            if(!audioCtx) return;
+            if(!externalBgmBuffer) {
+                setTimeout(playBGM, 500);
+                return;
+            }
+            if(bgmSource) return; 
+
+            bgmSource = audioCtx.createBufferSource();
+            bgmSource.buffer = externalBgmBuffer;
+            bgmSource.loop = true; 
+            
+            bgmGainNode = audioCtx.createGain();
+            bgmGainNode.gain.value = bgmVolume; 
+            
+            bgmSource.connect(bgmGainNode);
+            bgmGainNode.connect(audioCtx.destination);
+            bgmSource.start(0);
+        }
+
+        function playMissileSound() {
+            if(!audioCtx) return;
+
+            if (externalMissileBuffer) {
+                const source = audioCtx.createBufferSource();
+                source.buffer = externalMissileBuffer;
+                const gainNode = audioCtx.createGain();
+                gainNode.gain.value = sfxVolume * 1.2; 
+                source.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                source.start(0);
+                return; 
+            }
+
+            if(!masterNoiseBuffer) return;
+            const time = audioCtx.currentTime;
+            
+            const osc = audioCtx.createOscillator();
+            const oscGain = audioCtx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(100, time);
+            osc.frequency.exponentialRampToValueAtTime(20, time + 0.1);
+            oscGain.gain.setValueAtTime(sfxVolume * 0.6, time);
+            oscGain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+            
+            osc.connect(oscGain);
+            oscGain.connect(audioCtx.destination);
+            osc.start(time);
+            osc.stop(time + 0.1);
+
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = masterNoiseBuffer;
+            
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.setValueAtTime(800, time); 
+            filter.frequency.linearRampToValueAtTime(2500, time + 0.2); 
+            filter.frequency.exponentialRampToValueAtTime(200, time + 2.0); 
+            filter.Q.value = 1.2;
+            
+            const gain = audioCtx.createGain();
+            gain.gain.setValueAtTime(0, time);
+            gain.gain.linearRampToValueAtTime(sfxVolume * 2.5, time + 0.1); 
+            gain.gain.setValueAtTime(sfxVolume * 2.0, time + 0.4); 
+            gain.gain.exponentialRampToValueAtTime(0.01, time + 2.0); 
+            
+            noise.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            noise.start(time);
+            noise.stop(time + 2.0);
+        }
+
+        // משיכת שיאים ישנים/חדשים מהזיכרון
+        function getHighScores() {
+            let scores = [];
+            try {
+                scores = JSON.parse(localStorage.getItem('desertInterceptScoresV2') || '[]');
+            } catch (e) {
+                scores = [];
+            }
+            return scores;
+        }
+
+        // פונקציה למעבר למסך ההוראות
+        function goToInstructions() {
+            if (document.getElementById('start-screen').style.display !== 'none') {
+                document.getElementById('start-screen').style.display = 'none';
+                document.getElementById('instructions-overlay').style.display = 'flex';
+                
+                // אתחול מערכת השמע וניגון מוזיקת הרקע כבר במסך ההוראות
+                initAudio(); 
+                playBGM(); 
+            }
+        }
+
+        // לחיצה על מסך הפתיחה כולו מעבירה להוראות
+        document.getElementById('start-screen').addEventListener('click', goToInstructions);
+        
+        // מעבר גם באמצעות לחיצה על מקלדת
+        document.addEventListener('keydown', function(event) {
+            goToInstructions();
+        });
+
+        // כפתור התחלת המשימה (לאחר ההוראות והזנת השם)
+        document.getElementById('start-btn').addEventListener('click', () => {
+            
+            let inputName = document.getElementById('player-name-input').value.trim();
+            inputName = inputName.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            
+            if (inputName) {
+                currentPilotName = inputName;
+                localStorage.setItem('lastPilotName', currentPilotName);
+            } else {
+                currentPilotName = "טייס אלמוני";
+            }
+
+            // החלת מצב התצוגה הנבחר
+            applyHudMode();
+
+            // מוודא שהשמע דלוק במקרה שמדלגים מהר, מנגן קריינות משימה
+            initAudio(); 
+            playVoiceIntroSound(); 
+
+            missionStartTime = performance.now(); 
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('instructions-overlay').style.display = 'none';
+            document.getElementById('hud').style.display = 'flex';
+            
+            player.health = 100;
+            player.missiles = 10;
+            player.flares = 3; 
+            player.flareCooldown = 0;
+            player.gunTemp = 0;
+            player.gunJammed = false;
+            
+            isActivelyLocking = false;
+            activeLockTimer = 0;
+            activeLockTarget = null;
+            
+            score = 0;
+            level = 1;
+            escapedDrones = 0; 
+            dronesSpawnedThisWave = 0;
+            dronesTotalThisWave = 7; // בגל הראשון יהיו 7 רחפנים
+
+            document.getElementById('health').innerText = 100;
+            document.getElementById('score').innerText = 0;
+            document.getElementById('level').innerText = level;
+            document.getElementById('escaped-count').innerText = 0;
+            document.getElementById('missile-count').innerText = 10;
+            document.getElementById('flare-count').innerText = 3;
+            document.getElementById('flare-status').innerText = 'RDY';
+            document.getElementById('flare-status').style.color = '#0f0';
+            
+            visionMode = 0; 
+            toggleVisionMode(1); 
+
+            gameActive = true;
+            canSpawnEnemies = false; 
+            
+            setTimeout(() => {
+                if (gameActive) {
+                    canSpawnEnemies = true;
+                }
+            }, 4000);
+        });
+
+        function updateStartScreenLeaderboard() {
+            let scores = getHighScores();
+            if(scores.length > 0) {
+                document.getElementById('leaderboard').style.display = 'block';
+                document.getElementById('high-scores-list').innerHTML = scores.map(s => `<li>${s.name} - ${s.score} הפלות</li>`).join('');
+            }
+        }
+
+        function saveScoreAndGetLeaderboard(newScore) {
+            let scores = getHighScores();
+            if (newScore > 0) {
+                scores.push({ name: currentPilotName, score: newScore });
+                scores.sort((a, b) => b.score - a.score); 
+                scores = scores.slice(0, 5); 
+                localStorage.setItem('desertInterceptScoresV2', JSON.stringify(scores));
+            }
+            return scores;
+        }
+
+        function gameOver(reasonMessage) {
+            gameActive = false;
+            canSpawnEnemies = false;
+            
+            if(bgmSource) {
+                bgmSource.stop();
+                bgmSource = null;
+            }
+            
+            // שמירה אוטומטית של השיא עם השם שהוזן במסך הפתיחה
+            const topScores = saveScoreAndGetLeaderboard(score);
+            let scoresHTML = topScores.map(s => `<li>${s.name} - ${s.score} הפלות</li>`).join('');
+
+            const gameOverScreen = document.getElementById('game-over-screen');
+            gameOverScreen.style.display = 'flex';
+            if (GAME_OVER_BG_URL) {
+                gameOverScreen.style.backgroundImage = `url('${GAME_OVER_BG_URL}')`;
+            }
+
+            // העיצוב החדש - מציג ישירות את הטבלה ללא אזור הזנת שם
+            gameOverScreen.innerHTML = `
+                <div style="background: rgba(0, 10, 0, 0.85); padding: 40px; border-radius: 15px; border: 2px solid #0f0; max-width: 80%; display: flex; flex-direction: column; align-items: center;">
+                    <h1 style="font-size: 3rem; text-shadow: 0 0 10px #f00, 0 0 20px #f00; margin-bottom: 10px; color: #ff3333;">${reasonMessage}</h1>
+                    <h2 style="color:#0f0; margin-bottom: 30px; font-size: 2rem; text-shadow: 0 0 10px #0f0;">מטרות שיורטו: ${score}</h2>
+                    
+                    <div id="game-over-leaderboard" style="display: block; margin-top: 10px; background: rgba(0, 50, 0, 0.6); border: 1px solid #0f0; padding: 15px 30px; border-radius: 10px; min-width: 300px; width: 100%; box-sizing: border-box;">
+                        <h3 style="margin-top: 0; color: #ffaa00;">שיאי הפלות (Top 5)</h3>
+                        <ol style="margin: 0; padding-right: 25px; text-align: right; color: #0f0; font-size: 1.2rem;">
+                            ${scoresHTML}
+                        </ol>
+                    </div>
+
+                    <button id="restart-btn" class="mission-btn" onclick="location.reload()" style="margin-top: 25px;">חזור למסך הראשי</button>
+                </div>
+            `;
+
+            document.getElementById('hud').style.display = 'none';
+        }
+
+        init();
+    </script>
+</body>
+</html>
