@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>סימולטור טיסה: יירוט רחפנים</title>
     <style>
         body {
@@ -11,7 +11,8 @@
             background-color: #000;
             font-family: 'Courier New', Courier, monospace;
             user-select: none;
-            /* הוספת מרכוז למשחק עצמו */
+            -webkit-user-select: none;
+            touch-action: none; /* מניעת זום וגלילה בנייד */
             display: flex;
             justify-content: center;
             align-items: center;
@@ -19,7 +20,29 @@
             width: 100vw;
         }
 
-        /* הקונטיינר החכם ששומר על יחס 4:3 תמיד */
+        /* הודעת סיבוב מסך בנייד */
+        #rotate-device-prompt {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #000;
+            color: #0f0;
+            z-index: 9999;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        /* מזהה מצב אנכי ומציג את ההודעה */
+        @media screen and (orientation: portrait) and (max-width: 900px) {
+            #rotate-device-prompt { display: flex; }
+            #game-container { display: none; }
+        }
+
         #game-container {
             position: relative;
             width: 100vw;
@@ -65,6 +88,83 @@
             box-sizing: border-box;
         }
 
+        /* --- כפתורי מובייל --- */
+        #mobile-controls {
+            display: none; /* יוסתר כברירת מחדל, יופעל ע"י JS אם זה מובייל */
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        .mobile-btn {
+            position: absolute;
+            background: rgba(0, 255, 0, 0.2);
+            border: 2px solid rgba(0, 255, 0, 0.5);
+            border-radius: 50%;
+            color: rgba(0, 255, 0, 0.8);
+            font-weight: bold;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            text-shadow: 0 0 5px #000;
+            box-shadow: inset 0 0 10px rgba(0,255,0,0.2);
+        }
+
+        .mobile-btn:active {
+            background: rgba(0, 255, 0, 0.5);
+            box-shadow: 0 0 15px rgba(0,255,0,0.8);
+        }
+
+        /* D-PAD שמאלי */
+        #dpad-container {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            width: 150px;
+            height: 150px;
+            pointer-events: auto;
+            border-radius: 50%;
+            background: rgba(0, 50, 0, 0.1);
+            border: 1px dashed rgba(0, 255, 0, 0.3);
+        }
+
+        #btn-up { top: 0; left: 50%; transform: translateX(-50%); width: 50px; height: 50px; }
+        #btn-down { bottom: 0; left: 50%; transform: translateX(-50%); width: 50px; height: 50px; }
+        #btn-left { top: 50%; left: 0; transform: translateY(-50%); width: 50px; height: 50px; }
+        #btn-right { top: 50%; right: 0; transform: translateY(-50%); width: 50px; height: 50px; }
+
+        /* כפתורי פעולה ימניים */
+        #action-buttons {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 180px;
+            height: 180px;
+        }
+
+        #btn-fire { bottom: 20px; right: 80px; width: 70px; height: 70px; font-size: 1.2rem; background: rgba(255, 0, 0, 0.2); border-color: rgba(255,0,0,0.5); color: rgba(255,100,100,0.9); }
+        #btn-fire:active { background: rgba(255, 0, 0, 0.5); }
+        
+        #btn-missile { top: 20px; right: 20px; width: 60px; height: 60px; font-size: 0.9rem; }
+        #btn-flare { bottom: 100px; right: 100px; width: 50px; height: 50px; font-size: 0.8rem; background: rgba(255, 170, 0, 0.2); border-color: rgba(255,170,0,0.5); color: rgba(255,200,100,0.9);}
+        
+        /* מצערת (Throttle) שמאלית למעלה */
+        #throttle-container {
+            position: absolute;
+            top: 20%;
+            left: 20px;
+            width: 60px;
+            height: 150px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        #btn-speed-up { width: 60px; height: 60px; position: static; transform: none; }
+        #btn-speed-down { width: 60px; height: 60px; position: static; transform: none; }
+
+
         /* כוונת */
         #crosshair {
             position: absolute;
@@ -82,7 +182,6 @@
             position: absolute;
             transition: all 0.1s;
         }
-        /* יצירת מרווח שקוף במרכז הצלב לראייה חלקה של המטרה */
         #crosshair::before { 
             top: 19px; left: -10px; width: 60px; height: 2px; 
             background: linear-gradient(to right, rgba(0, 255, 0, 0.7) 0%, rgba(0, 255, 0, 0.7) 42%, transparent 42%, transparent 58%, rgba(0, 255, 0, 0.7) 58%, rgba(0, 255, 0, 0.7) 100%);
@@ -92,7 +191,6 @@
             background: linear-gradient(to bottom, rgba(0, 255, 0, 0.7) 0%, rgba(0, 255, 0, 0.7) 42%, transparent 42%, transparent 58%, rgba(0, 255, 0, 0.7) 58%, rgba(0, 255, 0, 0.7) 100%);
         }
 
-        /* חיווי כתום כאשר המטרה בתוך כוונת הוולקן */
         #crosshair.in-sights {
             border-color: #ffaa00;
             box-shadow: 0 0 8px #ffaa00;
@@ -104,7 +202,6 @@
             background: linear-gradient(to bottom, #ffaa00 0%, #ffaa00 42%, transparent 42%, transparent 58%, #ffaa00 58%, #ffaa00 100%);
         }
 
-        /* מצב נעילה על מטרה (טילים) */
         #crosshair.locked {
             border-color: #ff0000 !important;
             transform: translate(-50%, -50%) scale(1.3);
@@ -119,7 +216,6 @@
             box-shadow: 0 0 10px #ff0000;
         }
 
-        /* הוספת תיבת נעילה על המטרה */
         #target-box {
             position: absolute;
             width: 80px;
@@ -163,7 +259,6 @@
             letter-spacing: 2px;
         }
 
-        /* מצב נעילה אקטיבית (לקראת שיגור) */
         #target-box.locking-active {
             border-color: #ff0000;
             box-shadow: 0 0 20px #ff0000, inset 0 0 20px #ff0000;
@@ -187,7 +282,6 @@
             to { opacity: 0.3; transform: translate(-50%, -50%) scale(0.9); }
         }
 
-        /* חץ הכוונה למטרה הקרובה */
         #direction-wrapper {
             position: absolute;
             top: 50%;
@@ -216,7 +310,6 @@
             to { opacity: 1; }
         }
 
-        /* אנימציית הבהוב להתראת קמיקזה */
         @keyframes text-blink {
             0% { opacity: 1; text-shadow: 0 0 10px #f00; }
             50% { opacity: 0.3; text-shadow: none; }
@@ -242,6 +335,19 @@
         .bottom-panel { position: absolute; bottom: 20px; left: 20px; right: 20px; display: flex; justify-content: space-between; align-items: flex-end; color: #0f0; text-shadow: 0 0 5px #0f0; font-size: 1.2rem; font-weight: bold; }
         .weapon-status { text-align: left; font-family: monospace; line-height: 1.8; }
         .sys-data { text-align: right; line-height: 1.8; }
+
+        /* התאמות HUD למסכים קטנים (מובייל אופקי) */
+        @media screen and (max-height: 500px) {
+            .hud-top-panel { font-size: 0.9rem; top: 10px; }
+            .hud-left-panel { left: 5%; font-size: 0.9rem; top: 20%; }
+            .hud-right-panel { right: 5%; font-size: 0.9rem; top: 20%; }
+            .hud-box { font-size: 1.2rem; padding: 4px 10px; }
+            .bottom-panel { font-size: 0.9rem; bottom: 10px; }
+            #radar-container { width: 100px; height: 100px; }
+            .weapon-status { margin-left: 20px; }
+            .pitch-container { display: none; } /* מסתיר את סולם העלרוד במובייל כדי לא להעמיס */
+            .heading-container { top: 2%; font-size: 0.9rem; width: 250px; }
+        }
 
         #radar-container {
             width: 140px;
@@ -274,7 +380,6 @@
                 repeating-linear-gradient(0deg, rgba(0,0,0,0.15), rgba(0,0,0,0.15) 2px, transparent 2px, transparent 4px);
         }
 
-        /* --- מסכי פתיחה והוראות חדשים --- */
         #start-screen {
             position: absolute;
             top: 0;
@@ -299,7 +404,6 @@
             to { opacity: 1; }
         }
 
-        /* שכבת ההוראות המעודכנת */
         #instructions-overlay {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -317,6 +421,7 @@
             padding-top: 15vh; 
             padding-bottom: 2vh;
             box-sizing: border-box;
+            overflow-y: auto; /* הוספת גלילה במקרה שהמסך קטן מדי */
         }
 
         #game-over-screen {
@@ -340,6 +445,15 @@
             max-width: 900px;
             margin: 5px; 
             transform: scale(0.9); 
+        }
+
+        @media screen and (max-width: 800px) {
+            .instructions-container {
+                flex-direction: column;
+                align-items: center;
+                transform: scale(0.8);
+            }
+            #instructions-overlay { padding-top: 2vh; }
         }
 
         .instructions, .settings-panel { 
@@ -393,7 +507,6 @@
             border-radius: 5px;
         }
 
-        /* עיצוב שדה שם משתמש */
         .name-input-container {
             display: flex;
             flex-direction: column;
@@ -484,22 +597,27 @@
 </head>
 <body>
 
+<!-- מסך התרעה לסיבוב המכשיר -->
+<div id="rotate-device-prompt">
+    <div style="font-size: 4rem; margin-bottom: 20px;">📱➡️📳</div>
+    <div>אנא סובב את המכשיר למצב אופקי (Landscape) כדי לשחק</div>
+</div>
+
 <div id="game-container">
-    <!-- מסך פתיחה הראשי (עם התמונה) - ללא כפתור -->
+    <!-- מסך פתיחה הראשי -->
     <div id="start-screen">
     </div>
 
-    <!-- שכבת הוראות (מופיעה אחרי לחיצה על התחל, כשקופה למחצה על גבי התמונה) -->
+    <!-- שכבת הוראות -->
     <div id="instructions-overlay">
-        
         <div class="instructions-container">
             <div class="instructions">
                 <h3 style="margin-top: 0; color: #ffaa00; text-align: center; text-decoration: underline;">פקודות טיסה ונשק</h3>
-                • <b>חצי מקלדת (↑↓←→)</b> - ניווט וכוונת המטוס<br>
-                • <b>W / S</b> - הגברה/הורדה של עוצמת המנוע (מצערת)<br>
-                • <b>מקש רווח או קליק שמאלי</b> - ירי במכונת ירייה (יש לכוון בדיוק לאמצע הכוונת!)<br>
-                • <b>מקש M או קליק ימני</b> - שיגור טיל (דורש שמירה על נעילה ל-1.5 שניות!)<br>
-                • <b>מקש F</b> - שחרור נור הטעיה נגד קמיקזה<br>
+                • <b>חצי מקלדת / ג'ויסטיק וירטואלי</b> - ניווט וכוונת המטוס<br>
+                • <b>W / S או כפתורי מהירות</b> - הגברה/הורדה של עוצמת המנוע<br>
+                • <b>רווח / קליק שמאלי / כפתור FIRE</b> - ירי במכונת ירייה<br>
+                • <b>M / קליק ימני / כפתור MSL</b> - שיגור טיל (דורש נעילה ל-1.5 שניות)<br>
+                • <b>F / כפתור FLR</b> - שחרור נור הטעיה נגד קמיקזה<br>
                 <br>
                 <h3 style="margin-top: 0; color: #ffaa00; text-align: center; text-decoration: underline;">חוקי קרב</h3>
                 • 3 פגיעות קמיקזה במטוס - <b>התרסקות.</b><br>
@@ -560,7 +678,6 @@
         <div class="hud-glass" id="hud-glass-layer"></div>
         <div id="crosshair"></div>
         
-        <!-- חץ הכוונה לרחפן הבא -->
         <div id="direction-wrapper">
             <div class="direction-arrow"></div>
         </div>
@@ -619,13 +736,34 @@
                 <div>רדאר: <span id="radar-warning" style="color: #aaa">נקי</span></div>
             </div>
         </div>
+
+        <!-- כפתורי שליטה למובייל -->
+        <div id="mobile-controls">
+            <!-- מצערת -->
+            <div id="throttle-container">
+                <div id="btn-speed-up" class="mobile-btn">W</div>
+                <div id="btn-speed-down" class="mobile-btn">S</div>
+            </div>
+
+            <!-- חצים -->
+            <div id="dpad-container">
+                <div id="btn-up" class="mobile-btn">↑</div>
+                <div id="btn-down" class="mobile-btn">↓</div>
+                <div id="btn-left" class="mobile-btn">←</div>
+                <div id="btn-right" class="mobile-btn">→</div>
+            </div>
+
+            <!-- נשקים -->
+            <div id="action-buttons">
+                <div id="btn-missile" class="mobile-btn">MSL</div>
+                <div id="btn-flare" class="mobile-btn">FLR</div>
+                <div id="btn-fire" class="mobile-btn">FIRE</div>
+            </div>
+        </div>
     </div>
 </div> <!-- סיום game-container -->
 
     <script>
-        // =====================================================================
-        // הגדרת תמונות הרקע
-        // =====================================================================
         const START_SCREEN_BG_URL = "https://res.cloudinary.com/dcogfmkj2/image/upload/v1772638551/Generated_Image_March_04_2026_-_5_12PM_lcvquu.png"; 
         const INSTRUCTIONS_BG_URL = "https://res.cloudinary.com/dcogfmkj2/image/upload/v1772638556/Generated_Image_March_04_2026_-_3_22PM_v3jtg4.png";
         const GAME_OVER_BG_URL = "https://res.cloudinary.com/dcogfmkj2/image/upload/v1772638557/Generated_Image_March_04_2026_-_5_33PM_ekuvh4.png";
@@ -637,7 +775,6 @@
             document.getElementById('instructions-overlay').style.backgroundImage = `url('${INSTRUCTIONS_BG_URL}')`;
         }
 
-        // --- הגדרות קבצי שמע חיצוניים ---
         const GUN_SOUND_URL = "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772616986/volcan_jkbstv.mp3"; 
         const MISSILE_SOUND_URL = "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772617803/A_hard_metallic_laun__2-1772617789864_olp9kt.mp3";
         const VOICE_SHAGER_URL = "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772620123/23%D7%A9%D7%92%D7%A8_tqzbgs.mp3";
@@ -657,7 +794,6 @@
             "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772630760/ElevenLabs_2026-03-04T10_21_38_%D7%A9%D7%92%D7%A8_ivc_sp100_s50_sb73_v3_leqa80.mp3"
         ];
 
-        // צלילים המושמעים בהתחלת כל שלב
         const LEVEL_UP_SOUND_URLS = [
             "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772648666/ElevenLabs_2026-03-04T18_23_04_%D7%A9%D7%92%D7%A8_ivc_sp100_s50_sb73_v3_ayxvyf.mp3",
             "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772648666/ElevenLabs_2026-03-04T18_21_16_%D7%A9%D7%92%D7%A8_ivc_sp100_s50_sb73_v3_vegzc9.mp3",
@@ -665,7 +801,6 @@
             "https://res.cloudinary.com/dcogfmkj2/video/upload/v1772648665/ElevenLabs_2026-03-04T18_23_50_%D7%A9%D7%92%D7%A8_ivc_sp100_s50_sb73_v3_gzrm9a.mp3"
         ];
 
-        // --- משתני מערכת ומשחק ---
         let scene, camera, renderer;
         let gameActive = false;
         let canSpawnEnemies = false; 
@@ -678,18 +813,19 @@
         let escapedDrones = 0; 
         let currentPilotName = "טייס אלמוני"; 
         
-        // משתני מערכת גלים (Waves) חדשים
         let dronesSpawnedThisWave = 0;
-        let dronesTotalThisWave = 7; // הגל הראשון מתחיל עם 7 רחפנים
+        let dronesTotalThisWave = 7; 
 
         let isActivelyLocking = false; 
         let activeLockTimer = 0; 
         let activeLockTarget = null;
 
-        // משתני הגדרות
         let sfxVolume = 0.64;
         let bgmVolume = 0.33;
         
+        // משתנה שמזהה האם השחקן במובייל (לפי מגע)
+        let isMobile = false;
+
         const player = {
             position: new THREE.Vector3(0, 1500, 0), 
             rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
@@ -731,14 +867,8 @@
         let levelUpBuffers = []; 
 
         const audioDataCache = { 
-            gun: null, 
-            missile: null, 
-            voice: null, 
-            voiceIntro: null, 
-            bgm: null, 
-            explosions: [],
-            killConfirms: [],
-            levelUps: []
+            gun: null, missile: null, voice: null, voiceIntro: null, bgm: null, 
+            explosions: [], killConfirms: [], levelUps: []
         };
         
         function preFetchAudio() {
@@ -770,6 +900,33 @@
             const container = document.getElementById('game-container');
             return { w: container.clientWidth, h: container.clientHeight };
         }
+
+        // זיהוי מכשיר מגע
+        window.addEventListener('touchstart', function() {
+            isMobile = true;
+        }, {once: true});
+
+        function setupMobileControls() {
+            const addTouchKey = (btnId, keyCode) => {
+                const btn = document.getElementById(btnId);
+                btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[keyCode] = true; });
+                btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[keyCode] = false; });
+                btn.addEventListener('touchcancel', (e) => { e.preventDefault(); keys[keyCode] = false; });
+            };
+
+            addTouchKey('btn-up', 'ArrowUp');
+            addTouchKey('btn-down', 'ArrowDown');
+            addTouchKey('btn-left', 'ArrowLeft');
+            addTouchKey('btn-right', 'ArrowRight');
+            addTouchKey('btn-speed-up', 'KeyW');
+            addTouchKey('btn-speed-down', 'KeyS');
+            addTouchKey('btn-fire', 'Space');
+
+            // כפתורים שלחיצה אחת מספיקה להם
+            document.getElementById('btn-missile').addEventListener('touchstart', (e) => { e.preventDefault(); fireMissile(); });
+            document.getElementById('btn-flare').addEventListener('touchstart', (e) => { e.preventDefault(); fireFlare(); });
+        }
+
 
         function createTerrainTexture() {
             const canvas = document.createElement('canvas');
@@ -835,7 +992,6 @@
             createTerrain();
             createStars();
             
-            // שחזור שם הטייס האחרון (אם קיים)
             const savedName = localStorage.getItem('lastPilotName');
             if (savedName) {
                 document.getElementById('player-name-input').value = savedName;
@@ -843,7 +999,6 @@
 
             updateStartScreenLeaderboard(); 
 
-            // מאזינים לסליידרים של עוצמת השמע
             document.getElementById('music-volume').addEventListener('input', function() {
                 bgmVolume = this.value / 100;
                 document.getElementById('music-vol-display').innerText = this.value + '%';
@@ -860,7 +1015,16 @@
             window.addEventListener('resize', onWindowResize);
             document.addEventListener('keydown', (e) => keys[e.code] = true);
             document.addEventListener('keyup', (e) => handleKeyUp(e));
-            document.addEventListener('mousedown', onMouseDown);
+            
+            // עכבר (מיועד רק למחשב)
+            document.addEventListener('mousedown', (e) => {
+                if(!isMobile) onMouseDown(e);
+            });
+            document.addEventListener('mouseup', (e) => {
+                if(!isMobile && e.button === 0) keys['Space'] = false;
+            });
+
+            setupMobileControls();
 
             animate();
         }
@@ -872,7 +1036,7 @@
             if (e.code === 'KeyN') toggleVisionMode(1);
             if (e.code === 'KeyT') toggleVisionMode(2); 
             if (e.code === 'KeyM') fireMissile(); 
-            if (e.code === 'KeyF') fireFlare(); // שחרור נור הטעיה
+            if (e.code === 'KeyF') fireFlare(); 
         }
 
         function fireFlare() {
@@ -1077,9 +1241,6 @@
             }
         }
         
-        document.addEventListener('mouseup', (event) => {
-            if(event.button === 0) keys['Space'] = false;
-        });
 
         document.addEventListener('contextmenu', event => event.preventDefault());
 
@@ -1940,7 +2101,6 @@
             level++;
             document.getElementById('level').innerText = level;
             
-            // השהייה של שניה וחצי לפני השמעת ההודעה הרנדומלית
             setTimeout(() => {
                 if (gameActive) playLevelUpSound();
             }, 1500);
@@ -2187,6 +2347,9 @@
         document.addEventListener('keydown', () => {
             if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
         });
+        document.addEventListener('touchstart', () => {
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        }, {once: true});
 
         function playGunSound() {
             if(!audioCtx) return;
@@ -2349,6 +2512,11 @@
             document.getElementById('instructions-overlay').style.display = 'none';
             document.getElementById('hud').style.display = 'flex';
             
+            // הצגת כפתורי שליטה במובייל אם זוהה מסך מגע
+            if (isMobile) {
+                document.getElementById('mobile-controls').style.display = 'block';
+            }
+            
             player.health = 100;
             player.missiles = 10;
             player.flares = 3; 
@@ -2442,6 +2610,7 @@
             `;
 
             document.getElementById('hud').style.display = 'none';
+            document.getElementById('mobile-controls').style.display = 'none';
         }
 
         init();
