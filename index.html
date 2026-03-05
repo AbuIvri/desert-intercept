@@ -47,11 +47,20 @@
             position: relative;
             width: 100vw;
             height: 100vh;
+            /* הגבלת 4:3 למסכי מחשב רגילים */
             max-width: calc(100vh * (4/3));
             max-height: calc(100vw * (3/4));
             overflow: hidden;
             background-color: #050505;
             box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
+        }
+
+        /* ביטול הגבלת 4:3 למובייל כדי לאפשר מסך מלא לרוחב */
+        @media screen and (max-width: 950px), screen and (max-height: 600px) {
+            #game-container {
+                max-width: 100vw;
+                max-height: 100vh;
+            }
         }
 
         #game-canvas {
@@ -823,8 +832,22 @@
         let sfxVolume = 0.64;
         let bgmVolume = 0.33;
         
-        // משתנה שמזהה האם השחקן במובייל (לפי מגע)
-        let isMobile = false;
+        // משתנה שמזהה האם השחקן במובייל
+        let isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+        if (isMobile) {
+            // הגדרת תצוגת HUD מינימלית כברירת מחדל במובייל
+            document.addEventListener('DOMContentLoaded', () => {
+                document.getElementById('hud-mode').value = 'minimal';
+            });
+        }
+
+        window.addEventListener('touchstart', function() {
+            if (!isMobile) {
+                isMobile = true;
+                document.getElementById('hud-mode').value = 'minimal';
+            }
+        }, {once: true});
 
         const player = {
             position: new THREE.Vector3(0, 1500, 0), 
@@ -900,11 +923,6 @@
             const container = document.getElementById('game-container');
             return { w: container.clientWidth, h: container.clientHeight };
         }
-
-        // זיהוי מכשיר מגע
-        window.addEventListener('touchstart', function() {
-            isMobile = true;
-        }, {once: true});
 
         function setupMobileControls() {
             const addTouchKey = (btnId, keyCode) => {
