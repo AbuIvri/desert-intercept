@@ -849,6 +849,25 @@
             }
         }, {once: true});
 
+        // פונקציה לבקשת מסך מלא
+        function requestFullScreen() {
+            if (!document.fullscreenElement) {
+                if (document.documentElement.requestFullscreen) {
+                    document.documentElement.requestFullscreen().catch(err => {
+                        console.log(`Error attempting to enable fullscreen: ${err.message}`);
+                    });
+                } else if (document.documentElement.webkitRequestFullscreen) { /* Safari */
+                    document.documentElement.webkitRequestFullscreen().catch(err => {
+                        console.log(`Error attempting to enable fullscreen: ${err.message}`);
+                    });
+                } else if (document.documentElement.msRequestFullscreen) { /* IE11 */
+                    document.documentElement.msRequestFullscreen().catch(err => {
+                        console.log(`Error attempting to enable fullscreen: ${err.message}`);
+                    });
+                }
+            }
+        }
+
         const player = {
             position: new THREE.Vector3(0, 1500, 0), 
             rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
@@ -2497,6 +2516,11 @@
                 document.getElementById('start-screen').style.display = 'none';
                 document.getElementById('instructions-overlay').style.display = 'flex';
                 
+                // בקשת מסך מלא כבר בלחיצה הראשונה על המסך (אם אנחנו במובייל)
+                if (isMobile) {
+                    requestFullScreen();
+                }
+                
                 initAudio(); 
                 playBGM(); 
             }
@@ -2521,6 +2545,11 @@
             }
 
             applyHudMode();
+
+            // ליתר ביטחון, מבקש מסך מלא שוב בעת הלחיצה על "התחל"
+            if (isMobile) {
+                requestFullScreen();
+            }
 
             initAudio(); 
             playVoiceIntroSound(); 
@@ -2601,6 +2630,9 @@
                 bgmSource.stop();
                 bgmSource = null;
             }
+            
+            // יציאה ממסך מלא (אופציונלי, לפעמים עדיף להשאיר במסך מלא גם במסך הסיום)
+            // אם תרצה לצאת ממסך מלא בסוף, אפשר להשתמש ב- document.exitFullscreen()
             
             const topScores = saveScoreAndGetLeaderboard(score);
             let scoresHTML = topScores.map(s => `<li>${s.name} - ${s.score} הפלות</li>`).join('');
